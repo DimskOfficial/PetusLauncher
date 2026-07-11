@@ -1,7 +1,8 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const { spawn } = require('child_process');
 const cfg = require('./config');
 const { ensureUpToDate, isGameInstalled } = require('./updater');
@@ -50,123 +51,83 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
-// ---- Petus ID login -------------------------------------------------------
-// Opens the site's handoff URL in a dedicated window. After the user signs in
-// through Petus ID, the site lands back on /api/launcher/handoff, whose page
-// carries the game token in the DOM (window.__PETUS_AUTH__ + <meta> tags). We
-// read it out with executeJavaScript — this is reliable, unlike relying on a
-// renderer-initiated navigation to petus-launcher:// (modern Chromium swallows
-// custom-scheme navigations before will-navigate/will-redirect can fire). The
-// custom-scheme handlers are kept only as a belt-and-suspenders fallback.
+// ---- Petus ID login (external browser + loopback) -------------------------
+// Instead of an embedded window (where the user had to sign in again), we open
+// the handoff URL in the user's DEFAULT browser — where they're already signed
+// into Petus ID — and receive the game token back on a temporary localhost
+// server. This is the standard desktop-OAuth "loopback" pattern.
 function startLogin() {
   return new Promise((resolve, reject) => {
-    authWin = new BrowserWindow({
-      width: 460,
-      height: 620,
-      parent: win,
-      modal: true,
-      title: 'Вход через Petus ID',
-      autoHideMenuBar: true,
-      webPreferences: { contextIsolation: true, nodeIntegration: false },
-    });
-
-    let done = false;
-    const finish = (fn, arg) => {
-      if (done) return;
-      done = true;
-      if (authWin) {
-        authWin.destroy();
-        authWin = null;
-      }
-      fn(arg);
-    };
-
-    const acceptAuth = (auth) => {
-      if (!auth || !auth.token) return false;
-      saveAuth(auth);
-      finish(resolve, auth);
-      return true;
-    };
-
-    // Fallback: capture a petus-launcher://auth?token=... navigation if one
-    // ever does surface (older Electron, real-browser deep link relay, etc.).
-    const tryCaptureUrl = (url) => {
-      if (!url || !url.startsWith(`${cfg.protocol}://`)) return false;
+    const server = http.createServer((req, res) => {
+      let u;
       try {
-        const u = new URL(url);
-        acceptAuth({
-          token: u.searchParams.get('token') || '',
-          name: u.searchParams.get('name') || 'Player',
-          account: u.searchParams.get('account') || '',
-        });
-      } catch (e) {
-        finish(reject, e);
+        u = new URL(req.url, 'http://127.0.0.1');
+      } catch {
+        res.writeHead(400).end('bad request');
+        return;
       }
-      return true;
+      if (u.pathname !== '/cb') {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      const token = u.searchParams.get('token') || '';
+      const name = u.searchParams.get('name') || 'Player';
+      const account = u.searchParams.get('account') || '';
+
+      // Friendly page the user sees in their browser after logging in.
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        '<!doctype html><meta charset="utf-8"><title>PetusLauncher</title>' +
+          '<style>body{font-family:Tahoma,sans-serif;background:#e9edf3;color:#333;text-align:center;padding:60px}' +
+          'h3{color:#2b587a}</style>' +
+          (token
+            ? '<h3>Готово!</h3><p>Можно вернуться в лаунчер PetusGDPS — вход выполнен.</p>'
+            : '<h3>Ошибка входа</h3><p>Токен не получен. Попробуй ещё раз из лаунчера.</p>')
+      );
+
+      cleanup();
+      if (token) {
+        const auth = { token, name, account };
+        saveAuth(auth);
+        resolve(auth);
+      } else {
+        reject(new Error('no_token'));
+      }
+    });
+
+    let settled = false;
+    let timer = null;
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      try {
+        server.close();
+      } catch {
+        /* ignore */
+      }
+    };
+    const fail = (e) => {
+      cleanup();
+      reject(e);
     };
 
-    // Primary path: whenever a page finishes loading, if it is the handoff page
-    // it exposes window.__PETUS_AUTH__ = { token, name, account }. Read it.
-    const scrapeToken = (reason) => {
-      if (done || !authWin) return;
-      const url = authWin.webContents.getURL() || '';
-      console.log(`[auth] scrape (${reason}) url=${url}`);
-      authWin.webContents
-        .executeJavaScript(
-          '(function(){' +
-            'try{' +
-            'if(window.__PETUS_AUTH__ && window.__PETUS_AUTH__.token) return window.__PETUS_AUTH__;' +
-            'var t=document.querySelector(\'meta[name="petus-token"]\');' +
-            'if(t) return {token:t.content,' +
-            'name:decodeURIComponent((document.querySelector(\'meta[name="petus-name"]\')||{}).content||\'\'),' +
-            'account:(document.querySelector(\'meta[name="petus-account"]\')||{}).content||\'\'};' +
-            'return {__nohit:true, href:location.href, title:document.title, ' +
-            'body:(document.body?document.body.innerText.slice(0,200):\'\')};' +
-            '}catch(e){return {__err:String(e)};}' +
-          '})()',
-          true
-        )
-        .then((res) => {
-          if (res && res.token) {
-            console.log('[auth] token captured, len=' + res.token.length);
-            acceptAuth(res);
-          } else {
-            console.log('[auth] no token: ' + JSON.stringify(res));
-          }
-        })
-        .catch((e) => {
-          console.log('[auth] executeJavaScript failed: ' + e);
-        });
-    };
+    server.on('error', fail);
 
-    authWin.webContents.on('did-finish-load', () => scrapeToken('did-finish-load'));
-    authWin.webContents.on('did-navigate', (_e, url) => {
-      console.log(`[auth] did-navigate -> ${url}`);
-      scrapeToken('did-navigate');
-    });
-    authWin.webContents.on('did-navigate-in-page', () => scrapeToken('did-navigate-in-page'));
+    // Listen on a random free loopback port, then open the browser.
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      const redirect = `http://127.0.0.1:${port}/cb`;
+      const url = `${cfg.handoffUrl}?redirect=${encodeURIComponent(redirect)}`;
+      console.log(`[auth] opening browser -> ${url}`);
+      shell.openExternal(url);
 
-    authWin.webContents.on('will-redirect', (e, url) => {
-      console.log(`[auth] will-redirect -> ${url}`);
-      if (tryCaptureUrl(url)) e.preventDefault();
+      // Give the user a few minutes to complete the login, then give up.
+      timer = setTimeout(() => fail(new Error('timeout')), 5 * 60 * 1000);
     });
-    authWin.webContents.on('will-navigate', (e, url) => {
-      console.log(`[auth] will-navigate -> ${url}`);
-      if (tryCaptureUrl(url)) e.preventDefault();
-    });
-    authWin.webContents.on('did-fail-load', (_e, code, desc, url) => {
-      console.log(`[auth] did-fail-load ${code} ${desc} -> ${url}`);
-      tryCaptureUrl(url);
-    });
-
-    authWin.on('closed', () => {
-      authWin = null;
-      finish(reject, new Error('cancelled'));
-    });
-
-    authWin.loadURL(cfg.handoffUrl);
   });
 }
+
 
 // ---- Game launch ----------------------------------------------------------
 // A pending level from a petusgdps://play?level=<id> deep link (site "Play").
