@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>PetusLauncher</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="logo">▲</span> PetusGDPS</div>
+    <div class="topbar-right" id="userChip" hidden>
+      <span id="userName"></span>
+      <a href="#" id="logoutBtn" class="link">выход</a>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Login state -->
+    <section id="loginView" class="panel" hidden>
+      <div class="panel-title">Вход</div>
+      <div class="panel-body center">
+        <p class="muted">Войди через Petus ID, чтобы играть.<br />Регистрация и пароли не нужны.</p>
+        <button id="loginBtn" class="btn btn-primary big">Войти через Petus ID</button>
+      </div>
+    </section>
+
+    <!-- Play state -->
+    <section id="playView" class="panel" hidden>
+      <div class="panel-title">Игра</div>
+      <div class="panel-body">
+        <div class="hero">
+          <div class="hero-art">▲</div>
+          <div class="hero-info">
+            <div class="hero-title">Geometry Dash</div>
+            <div class="muted" id="statusLine">Готов к запуску</div>
+            <div class="progress" id="progressWrap" hidden>
+              <div class="progress-bar" id="progressBar"></div>
+            </div>
+          </div>
+        </div>
+        <button id="playBtn" class="btn btn-primary big">Играть</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="footer muted" id="footVersion"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

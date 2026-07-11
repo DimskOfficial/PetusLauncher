@@ -1,0 +1,80 @@
+/* VK-2010 flavored launcher theme: Tahoma, blue bar, white panels. */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: Tahoma, Geneva, sans-serif;
+  font-size: 12px;
+  color: #333;
+  background: #e9edf3;
+  user-select: none;
+}
+
+.topbar {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: linear-gradient(#5f7fa6, #4a6a91);
+  color: #fff;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+.brand { font-weight: bold; font-size: 15px; text-shadow: 0 -1px 0 rgba(0,0,0,.25); }
+.logo {
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 3px;
+  background: rgba(255,255,255,.2); font-size: 13px; margin-right: 4px;
+}
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 11px; }
+.topbar-right #userName { color: rgba(255,255,255,.95); }
+.link { color: rgba(255,255,255,.9); text-decoration: none; }
+.link:hover { text-decoration: underline; color: #fff; }
+
+.content { padding: 12px; }
+
+.panel {
+  background: #fff;
+  border: 1px solid #c3ccd8;
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04);
+}
+.panel-title {
+  background: linear-gradient(#f7f9fb, #eef1f5);
+  border-bottom: 1px solid #dfe4ea;
+  padding: 6px 10px;
+  font-weight: bold;
+  color: #2b587a;
+}
+.panel-body { padding: 16px; }
+.center { text-align: center; }
+.muted { color: #777; }
+
+.hero { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.hero-art {
+  width: 84px; height: 84px; flex: none;
+  display: grid; place-items: center;
+  border: 1px solid #c9d3e0; background: #f0f2f5;
+  font-size: 40px; color: #5f7fa6;
+}
+.hero-title { font-size: 16px; font-weight: bold; color: #2b587a; margin-bottom: 2px; }
+
+.progress {
+  margin-top: 8px; height: 14px; width: 100%;
+  border: 1px solid #c3ccd8; background: #f0f2f5; border-radius: 2px; overflow: hidden;
+}
+.progress-bar {
+  height: 100%; width: 0%;
+  background: linear-gradient(#7fae5f, #5f9140);
+  transition: width .15s ease;
+}
+
+.btn {
+  font-family: inherit; font-size: 12px; cursor: pointer;
+  padding: 5px 14px; border-radius: 2px; border: 1px solid #5975a0;
+  color: #fff; background: linear-gradient(#6d8db3, #4f7095);
+}
+.btn:hover { background: linear-gradient(#7a99bf, #56789f); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.big { font-size: 14px; padding: 8px 26px; }
+
+.footer { padding: 6px 12px; text-align: right; font-size: 10px; }
