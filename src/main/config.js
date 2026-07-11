@@ -7,14 +7,17 @@ const os = require('os');
 
 const SITE = process.env.PETUS_SITE_URL || 'https://gdps.petus.ru';
 const CDN = process.env.PETUS_CDN_URL || 'https://cdn.petus.goonhost.rocks';
+const CORE = process.env.PETUS_CORE_URL || 'https://cgdps.petus.ru';
 
 module.exports = {
   // Website that performs the Petus ID OAuth handoff.
   site: SITE,
   handoffUrl: `${SITE}/api/launcher/handoff`,
 
-  // Auto-update: version.json + game archive live on the CDN (S3-backed).
-  updateManifest: `${CDN}/game/version.json`,
+  // Auto-update: the manifest is served by the CORE (Kestrel, no CDN cache) so
+  // a freshly published build is seen immediately; the game .zip it points to
+  // is a versioned, cache-proof CDN URL.
+  updateManifest: `${CORE}/api/game/manifest`,
 
   // Where the game gets installed (per-user, no admin rights needed).
   gameDir: path.join(os.homedir(), 'AppData', 'Local', 'PetusGDPS', 'game'),
