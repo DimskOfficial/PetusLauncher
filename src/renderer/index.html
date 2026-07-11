@@ -7,11 +7,19 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Title bar (frameless drag region + window controls + user chip) -->
   <div class="topbar">
-    <div class="brand"><img src="icon.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo',textContent:'▲'}))" /> PetusGDPS</div>
-    <div class="topbar-right" id="userChip" hidden>
-      <span id="userName"></span>
-      <a href="#" id="logoutBtn" class="link">выход</a>
+    <div class="brand"><img src="icon.png" alt="" onerror="this.style.display='none'" /> PetusLauncher</div>
+    <div class="topbar-right">
+      <div id="userChip" class="user-chip" hidden>
+        <span id="userName"></span>
+        <span class="caret">▾</span>
+        <div id="userMenu" class="user-menu" hidden>
+          <a href="#" data-act="profile">Профиль</a>
+          <a href="#" data-act="settings">Настройки</a>
+          <a href="#" data-act="logout">Выйти</a>
+        </div>
+      </div>
     </div>
     <div class="win-ctrls">
       <button id="winMin" class="win-btn" title="Свернуть">─</button>
@@ -19,37 +27,40 @@
     </div>
   </div>
 
-  <div class="content">
-    <!-- Login state -->
-    <section id="loginView" class="panel" hidden>
-      <div class="panel-title">Вход</div>
-      <div class="panel-body center">
-        <p class="muted">Войди через Petus ID, чтобы играть.<br />Регистрация и пароли не нужны.</p>
-        <button id="loginBtn" class="btn btn-primary big">Войти через Petus ID</button>
-      </div>
-    </section>
+  <div class="shell">
+    <!-- Left sidebar: game list -->
+    <aside class="sidebar">
+      <div class="sidebar-title">Игры</div>
+      <div id="gameList" class="game-list"></div>
+    </aside>
 
-    <!-- Play state -->
-    <section id="playView" class="panel" hidden>
-      <div class="panel-title">Игра</div>
-      <div class="panel-body">
-        <div class="hero">
-          <div class="hero-art">▲</div>
-          <div class="hero-info">
-            <div class="hero-title">Geometry Dash</div>
-            <div class="muted" id="statusLine">Готов к запуску</div>
-            <div class="progress" id="progressWrap" hidden>
-              <div class="progress-bar" id="progressBar"></div>
-            </div>
-          </div>
+    <!-- Main content: login OR selected game page -->
+    <main class="content">
+      <!-- Login gate -->
+      <section id="loginView" class="login-view" hidden>
+        <div class="login-card">
+          <div class="login-logo">▲</div>
+          <div class="login-title">Вход в Петус</div>
+          <p class="muted">Войди через Petus ID, чтобы играть.<br />Регистрация и пароли не нужны.</p>
+          <button id="loginBtn" class="btn btn-primary big">Войти через Petus ID</button>
         </div>
-        <button id="playBtn" class="btn btn-primary big">Играть</button>
-        <button id="installBtn" class="btn install big" hidden>Установить игру</button>
-      </div>
-    </section>
+      </section>
+
+      <!-- Game page (rendered dynamically) -->
+      <section id="gameView" hidden></section>
+    </main>
   </div>
 
-  <div class="footer muted" id="footVersion"></div>
+  <!-- Generic in-window modal -->
+  <div id="modalWrap" class="modal-wrap" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <span id="modalTitle"></span>
+        <button id="modalClose" class="modal-x">✕</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>

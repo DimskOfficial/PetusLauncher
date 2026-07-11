@@ -1,10 +1,12 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const { spawn } = require('child_process');
 const cfg = require('./config');
+const games = require('./games');
+const stats = require('./stats');
 const { ensureUpToDate, isGameInstalled } = require('./updater');
 
 let win = null;
@@ -134,7 +136,7 @@ function startLogin() {
 let pendingPlayLevel = 0;
 
 // Write the token (and any pending Play level) where the mod reads it, then
-// spawn the game.
+// spawn the game and track playtime until it exits.
 function launchGame(auth) {
   fs.mkdirSync(path.dirname(cfg.tokenFile), { recursive: true });
   const payload = {
@@ -150,8 +152,15 @@ function launchGame(auth) {
   const exe = path.join(cfg.gameDir, cfg.exeName);
   if (!fs.existsSync(exe)) throw new Error('Игра не установлена.');
 
-  const child = spawn(exe, [], { cwd: cfg.gameDir, detached: true, stdio: 'ignore' });
-  child.unref();
+  const startedAt = Date.now();
+  stats.setLastPlayed('petusgdps', startedAt);
+  // Not detached: we watch for exit to accumulate playtime.
+  const child = spawn(exe, [], { cwd: cfg.gameDir, stdio: 'ignore' });
+  child.on('exit', () => {
+    const secs = (Date.now() - startedAt) / 1000;
+    stats.addPlaytime('petusgdps', secs, startedAt);
+    if (win) win.webContents.send('game:closed', { gameId: 'petusgdps' });
+  });
 }
 
 // Parse petusgdps://play?level=<id> and remember the level for the next launch.
@@ -187,14 +196,62 @@ ipcMain.handle('game:play', async (_evt) => {
   const auth = loadAuth();
   if (!auth) throw new Error('not_authed');
 
+  const wasInstalled = isGameInstalled();
   const send = (stage, data) => win && win.webContents.send('update:progress', { stage, ...data });
   await ensureUpToDate(send);
+  // After an install/update, refresh size + take an integrity snapshot.
+  if (!wasInstalled || !fs.existsSync(path.join(cfg.gameDir, cfg.exeName))) {
+    stats.updateSize('petusgdps', cfg.gameDir);
+    stats.snapshotIntegrity('petusgdps', cfg.gameDir, cfg.exeName);
+  } else {
+    // Re-snapshot after any update path ran (ensureUpToDate may have unpacked).
+    stats.snapshotIntegrity('petusgdps', cfg.gameDir, cfg.exeName);
+    stats.updateSize('petusgdps', cfg.gameDir);
+  }
   launchGame(auth);
   return true;
 });
 
 // Whether the game is already installed (renderer shows Install vs Play).
 ipcMain.handle('game:isInstalled', () => isGameInstalled());
+
+// ---- Store UI IPC ---------------------------------------------------------
+ipcMain.handle('games:list', () =>
+  games.map((g) => ({
+    id: g.id,
+    name: g.name,
+    type: g.type,
+    tagline: g.tagline,
+    ip: g.ip || null,
+    changelog: g.changelog || [],
+    installed: g.type === 'gdps' ? isGameInstalled() : null,
+  }))
+);
+
+ipcMain.handle('game:stats', (_e, gameId) => stats.gameStats(gameId));
+
+// Verify installed files against the post-install snapshot.
+ipcMain.handle('game:verify', () =>
+  stats.verifyIntegrity('petusgdps', cfg.gameDir, cfg.exeName)
+);
+
+// Open the install folder in the OS file manager.
+ipcMain.handle('game:openFolder', () => {
+  if (fs.existsSync(cfg.gameDir)) shell.openPath(cfg.gameDir);
+  return true;
+});
+
+// Copy the MC server IP to the clipboard.
+ipcMain.handle('mc:copyIp', (_e, ip) => {
+  clipboard.writeText(String(ip || ''));
+  return true;
+});
+
+// Open a URL in the user's default browser (profile / settings menu).
+ipcMain.handle('open:external', (_e, url) => {
+  if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
+  return true;
+});
 
 // Frameless window controls.
 ipcMain.on('win:minimize', () => win && win.minimize());

@@ -12,6 +12,10 @@ const cfg = require('./config');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Some CDNs / WAFs reject requests with no User-Agent (returns 403). Node's
+// http(s).get sends none by default, so set one on every request.
+const REQ_OPTS = { headers: { 'User-Agent': 'PetusLauncher' } };
+
 // Retry a promise-returning fn a few times (core can drop connections; the CDN
 // can briefly negative-cache a just-uploaded object as 403).
 async function withRetry(fn, { tries = 5, delay = 1500, label = 'request' } = {}) {
@@ -31,7 +35,7 @@ function fetchJsonOnce(url) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('http:') ? http : https;
     lib
-      .get(url, (res) => {
+      .get(url, REQ_OPTS, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return resolve(fetchJsonOnce(res.headers.location));
         }
@@ -63,7 +67,7 @@ function downloadOnce(url, dest, onProgress) {
     const lib = url.startsWith('http:') ? http : https;
     const file = fs.createWriteStream(dest);
     lib
-      .get(url, (res) => {
+      .get(url, REQ_OPTS, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           file.close();
           fs.rmSync(dest, { force: true });
