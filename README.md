@@ -1,60 +1,49 @@
 # PetusLauncher
 
-VK-styled Electron launcher for **PetusGDPS**.
+Десктопный лаунчер экосистемы **Петус** (Windows, .NET 8 / WinForms).
+Вход через Petus ID, установка и авто-обновление PetusGDPS, запуск игры уже
+авторизованным. Оформление — в стиле ВК-2010.
 
-- **Вход только через Petus ID** — никаких логинов/паролей в игре или в лаунчере.
-- **Автообновление** — при запуске проверяет `version.json` на CDN (S3), скачивает
-  и распаковывает новую сборку без действий пользователя.
-- **Запуск игры авторизованным** — токен пишется в `session.json`, мод его читает.
+## Возможности
+- **Вход через Petus ID** — открывается системный браузер (где ты уже вошёл),
+  токен возвращается на localhost. Пароли не вводятся.
+- **Каталог игр** (сайдбар): PetusGDPS и PetusMC. Страницы в стиле Steam с
+  баннером, статистикой и обновлениями.
+- **PetusGDPS**: «Установить/Играть», прогресс загрузки, авто-обновление из
+  манифеста ядра (`/api/game/manifest`).
+- **PetusMC**: онлайн сервера (players online) + копирование IP `mc.petus.ru`.
+- **Статистика игры**: наиграно, размер установки, последний запуск.
+- **Целостность**: sha256-снимок exe + модов после установки; кнопка
+  «Проверить целостность» ловит подмену файлов.
+- **Меню профиля** по клику на ник: Профиль / Настройки / Выйти.
 
-## Как это работает
-
+## Сборка
 ```
-[Launcher]  →  открывает  gdps.petus.ru/api/launcher/handoff  (встроенное окно)
-            →  пользователь входит через Petus ID (обычный OAuth сайта)
-            →  сайт минтит игровой токен и редиректит на
-                 petus-launcher://auth?token=...&name=...&account=...
-[Launcher]  ←  перехватывает редирект, сохраняет токен
-            →  ensureUpToDate(): version.json → скачать zip → распаковать в gameDir
-            →  пишет session.json  →  запускает GeometryDash.exe
-[Mod]       →  читает session.json, логинит игрока, отключает вход в игре
+dotnet build PetusLauncher.csproj -c Release
 ```
-
-Секрет OAuth и `PETUS_API_SECRET` **никогда** не попадают в клиент — токен
-минтит сайт на сервере.
-
-## Разработка
-
-```bash
-npm install
-npm start          # запустить лаунчер локально (electron .)
-npm run dist       # собрать инсталлятор (dist/PetusLauncher-Setup.exe)
+Self-contained single-file exe (без нужды в .NET у пользователя):
+```
+dotnet publish PetusLauncher.csproj -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-Переопределяемые переменные окружения (build-time):
+## Конфигурация (env, необязательно)
+- `PETUS_SITE_URL` — сайт (по умолчанию `https://gdps.petus.ru`)
+- `PETUS_CORE_URL` — ядро (по умолчанию `https://cgdps.petus.ru`)
+- `PETUS_CDN_URL` — CDN (по умолчанию `https://cdn.petus.goonhost.rocks`)
 
-| Переменная         | По умолчанию                          |
-| ------------------ | ------------------------------------- |
-| `PETUS_SITE_URL`   | `https://gdps.petus.ru`               |
-| `PETUS_CDN_URL`    | `https://cdn.petus.goonhost.rocks`    |
-
-## Формат манифеста обновления (`<CDN>/game/version.json`)
-
-```json
-{
-  "version": "1.0.0",
-  "url": "https://cdn.petus.goonhost.rocks/game/petusgdps-1.0.0.zip"
-}
+## Публикация на S3
+`publish.mjs` — SigV4-загрузчик (без AWS CLI):
+```
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
+  node publish.mjs put publish/PetusLauncher.exe launcher/PetusLauncher-<ver>.exe application/octet-stream
 ```
 
-`url` — zip с содержимым игры (в корне архива должен лежать `GeometryDash.exe`
-и мод). Лаунчер распаковывает его в
-`%LOCALAPPDATA%\PetusGDPS\game`.
-
-## Публикация
-
-1. Соберите игру + мод в zip, залейте на S3: `game/petusgdps-<ver>.zip`.
-2. Обновите `game/version.json` (version + url).
-3. Соберите инсталлятор (`npm run dist`) и залейте
-   `dist/PetusLauncher-Setup.exe` → `launcher/PetusLauncher-Setup.exe`.
-   Сайт уже ссылается на него кнопкой «Скачать».
+## Структура
+- `src/Program.cs` — точка входа
+- `src/MainForm*.cs` — UI (title bar, сайдбар, страницы, модалки)
+- `src/Auth.cs` — вход через браузер + loopback
+- `src/Updater.cs` — манифест + загрузка/распаковка игры (User-Agent + ретраи)
+- `src/Stats.cs` — статистика + проверка целостности
+- `src/GameLauncher.cs` — запуск игры, учёт времени
+- `src/Games.cs`, `src/Config.cs`, `src/Theme.cs`
