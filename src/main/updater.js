@@ -10,13 +10,30 @@ const http = require('http');
 const AdmZip = require('adm-zip');
 const cfg = require('./config');
 
-function fetchJson(url) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retry a promise-returning fn a few times (core can drop connections; the CDN
+// can briefly negative-cache a just-uploaded object as 403).
+async function withRetry(fn, { tries = 5, delay = 1500, label = 'request' } = {}) {
+  let lastErr;
+  for (let i = 1; i <= tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < tries) await sleep(delay);
+    }
+  }
+  throw new Error(`${label} failed after ${tries} tries: ${lastErr && lastErr.message ? lastErr.message : lastErr}`);
+}
+
+function fetchJsonOnce(url) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('http:') ? http : https;
     lib
       .get(url, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return resolve(fetchJson(res.headers.location));
+          return resolve(fetchJsonOnce(res.headers.location));
         }
         if (res.statusCode !== 200) {
           res.resume();
@@ -37,7 +54,11 @@ function fetchJson(url) {
   });
 }
 
-function download(url, dest, onProgress) {
+function fetchJson(url) {
+  return withRetry(() => fetchJsonOnce(url), { label: 'manifest' });
+}
+
+function downloadOnce(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('http:') ? http : https;
     const file = fs.createWriteStream(dest);
@@ -46,10 +67,12 @@ function download(url, dest, onProgress) {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           file.close();
           fs.rmSync(dest, { force: true });
-          return resolve(download(res.headers.location, dest, onProgress));
+          return resolve(downloadOnce(res.headers.location, dest, onProgress));
         }
         if (res.statusCode !== 200) {
           res.resume();
+          file.close();
+          fs.rmSync(dest, { force: true });
           return reject(new Error(`download HTTP ${res.statusCode}`));
         }
         const total = parseInt(res.headers['content-length'] || '0', 10);
@@ -67,6 +90,10 @@ function download(url, dest, onProgress) {
         reject(err);
       });
   });
+}
+
+function download(url, dest, onProgress) {
+  return withRetry(() => downloadOnce(url, dest, onProgress), { tries: 5, delay: 2500, label: 'download' });
 }
 
 function readInstalled() {

@@ -1,6 +1,6 @@
 {
   "name": "petus-launcher",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "PetusGDPS launcher — Petus ID login, auto-update, boots Geometry Dash authenticated.",
   "main": "src/main/main.js",
   "author": "Dimsk",
