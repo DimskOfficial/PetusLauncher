@@ -116,19 +116,44 @@ function startLogin() {
 }
 
 // ---- Game launch ----------------------------------------------------------
-// Write the token where the mod reads it, then spawn the game.
+// A pending level from a petusgdps://play?level=<id> deep link (site "Play").
+let pendingPlayLevel = 0;
+
+// Write the token (and any pending Play level) where the mod reads it, then
+// spawn the game.
 function launchGame(auth) {
   fs.mkdirSync(path.dirname(cfg.tokenFile), { recursive: true });
-  fs.writeFileSync(
-    cfg.tokenFile,
-    JSON.stringify({ token: auth.token, name: auth.name, account: auth.account, ts: Date.now() }, null, 2),
-  );
+  const payload = {
+    token: auth.token,
+    name: auth.name,
+    account: auth.account,
+    ts: Date.now(),
+  };
+  if (pendingPlayLevel > 0) payload.play = pendingPlayLevel;
+  fs.writeFileSync(cfg.tokenFile, JSON.stringify(payload, null, 2));
+  pendingPlayLevel = 0;
 
   const exe = path.join(cfg.gameDir, cfg.exeName);
   if (!fs.existsSync(exe)) throw new Error('Игра не установлена.');
 
   const child = spawn(exe, [], { cwd: cfg.gameDir, detached: true, stdio: 'ignore' });
   child.unref();
+}
+
+// Parse petusgdps://play?level=<id> and remember the level for the next launch.
+function handleGameDeepLink(url) {
+  if (!url || !url.startsWith(`${cfg.gameProtocol}://`)) return false;
+  try {
+    const u = new URL(url);
+    const lvl = parseInt(u.searchParams.get('level') || '0', 10);
+    if (lvl > 0) {
+      pendingPlayLevel = lvl;
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 // ---- IPC ------------------------------------------------------------------
@@ -159,9 +184,17 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_e, argv) => {
-    // A protocol invocation may arrive as a CLI arg on Windows.
-    const deep = argv.find((a) => a.startsWith(`${cfg.protocol}://`));
-    if (deep && authWin) authWin.webContents.emit('will-navigate', { preventDefault() {} }, deep);
+    // A protocol invocation arrives as a CLI arg on Windows.
+    const authDeep = argv.find((a) => a.startsWith(`${cfg.protocol}://`));
+    if (authDeep && authWin) authWin.webContents.emit('will-navigate', { preventDefault() {} }, authDeep);
+
+    // Site "Play": petusgdps://play?level=<id> — remember it and, if already
+    // signed in, launch straight into the game.
+    const gameDeep = argv.find((a) => a.startsWith(`${cfg.gameProtocol}://`));
+    if (gameDeep && handleGameDeepLink(gameDeep) && loadAuth() && win) {
+      win.webContents.send('deeplink:play', { level: pendingPlayLevel });
+    }
+
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
@@ -169,11 +202,19 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
-    if (process.defaultApp) {
-      app.setAsDefaultProtocolClient(cfg.protocol, process.execPath, [path.resolve(process.argv[1] || '.')]);
-    } else {
-      app.setAsDefaultProtocolClient(cfg.protocol);
+    // Register both protocols with the OS.
+    for (const scheme of [cfg.protocol, cfg.gameProtocol]) {
+      if (process.defaultApp) {
+        app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1] || '.')]);
+      } else {
+        app.setAsDefaultProtocolClient(scheme);
+      }
     }
+
+    // Cold-start deep link (launcher opened by the OS from a petusgdps:// link).
+    const coldDeep = process.argv.find((a) => a.startsWith(`${cfg.gameProtocol}://`));
+    if (coldDeep) handleGameDeepLink(coldDeep);
+
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

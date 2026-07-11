@@ -27,4 +27,6 @@ module.exports = {
   exeName: 'GeometryDash.exe',
 
   protocol: 'petus-launcher',
+  // Deep link used by the site "Play" button: petusgdps://play?level=<id>.
+  gameProtocol: 'petusgdps',
 };
