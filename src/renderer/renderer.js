@@ -10,22 +10,41 @@ const statusLine = $('statusLine');
 const progressWrap = $('progressWrap');
 const progressBar = $('progressBar');
 const playBtn = $('playBtn');
+const installBtn = $('installBtn');
 const footVersion = $('footVersion');
 
 const STAGE_TEXT = {
   check: 'Проверка обновлений…',
-  download: 'Загрузка обновления…',
+  download: 'Загрузка…',
   install: 'Установка…',
   uptodate: 'Уже последняя версия',
   ready: 'Готов к запуску',
   error: 'Ошибка',
 };
 
+// Frameless window controls.
+$('winMin').addEventListener('click', () => window.petus.minimize());
+$('winClose').addEventListener('click', () => window.petus.close());
+
+async function refreshPlayButtons() {
+  const installed = await window.petus.isInstalled();
+  if (installed) {
+    playBtn.hidden = false;
+    installBtn.hidden = true;
+    statusLine.textContent = 'Готов к запуску';
+  } else {
+    playBtn.hidden = true;
+    installBtn.hidden = false;
+    statusLine.textContent = 'Игра не установлена';
+  }
+}
+
 function showLogged(auth) {
   loginView.hidden = true;
   playView.hidden = false;
   userChip.hidden = false;
   userName.textContent = auth.name || 'Player';
+  refreshPlayButtons();
 }
 
 function showLoggedOut() {
@@ -56,6 +75,19 @@ $('logoutBtn').addEventListener('click', async (e) => {
   e.preventDefault();
   await window.petus.logout();
   showLoggedOut();
+});
+
+// Install downloads + unpacks the game, then flips to the Play button.
+installBtn.addEventListener('click', async () => {
+  installBtn.disabled = true;
+  try {
+    await window.petus.play(); // ensureUpToDate installs, then launches
+    await refreshPlayButtons();
+  } catch (e) {
+    statusLine.textContent = 'Ошибка: ' + (e.message || e);
+  } finally {
+    installBtn.disabled = false;
+  }
 });
 
 playBtn.addEventListener('click', async () => {

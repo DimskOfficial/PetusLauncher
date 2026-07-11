@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('petus', {
   login: () => ipcRenderer.invoke('auth:login'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   play: () => ipcRenderer.invoke('game:play'),
+  isInstalled: () => ipcRenderer.invoke('game:isInstalled'),
+  minimize: () => ipcRenderer.send('win:minimize'),
+  close: () => ipcRenderer.send('win:close'),
   onProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('update:progress', handler);

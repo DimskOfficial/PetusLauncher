@@ -8,10 +8,14 @@
 </head>
 <body>
   <div class="topbar">
-    <div class="brand"><span class="logo">▲</span> PetusGDPS</div>
+    <div class="brand"><img src="icon.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo',textContent:'▲'}))" /> PetusGDPS</div>
     <div class="topbar-right" id="userChip" hidden>
       <span id="userName"></span>
       <a href="#" id="logoutBtn" class="link">выход</a>
+    </div>
+    <div class="win-ctrls">
+      <button id="winMin" class="win-btn" title="Свернуть">─</button>
+      <button id="winClose" class="win-btn close" title="Закрыть">✕</button>
     </div>
   </div>
 
@@ -40,6 +44,7 @@
           </div>
         </div>
         <button id="playBtn" class="btn btn-primary big">Играть</button>
+        <button id="installBtn" class="btn install big" hidden>Установить игру</button>
       </div>
     </section>
   </div>

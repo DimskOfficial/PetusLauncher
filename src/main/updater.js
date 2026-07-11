@@ -127,4 +127,13 @@ async function ensureUpToDate(emit) {
   return { version: manifest.version };
 }
 
-module.exports = { ensureUpToDate, readInstalled };
+// True when a game executable is present on disk.
+function isGameInstalled() {
+  try {
+    return fs.existsSync(path.join(cfg.gameDir, cfg.exeName));
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { ensureUpToDate, readInstalled, isGameInstalled };
