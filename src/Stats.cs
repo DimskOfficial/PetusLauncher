@@ -110,11 +110,20 @@ static class Stats
 
     public static IntegrityResult Verify(string gameId, string gameDir)
     {
+        return VerifyWithProgress(gameId, gameDir, null);
+    }
+
+    // Same as Verify but calls `progress(done, total)` as it hashes each file so
+    // the UI can drive a progress bar.
+    public static IntegrityResult VerifyWithProgress(string gameId, string gameDir, Action<int, int>? progress)
+    {
         var all = Read(Config.IntegrityFile);
         if (all[gameId] is not JsonObject snap)
             return new IntegrityResult(true, new(), true);
 
         var changed = new List<string>();
+        int total = snap.Count, done = 0;
+        progress?.Invoke(0, total);
         foreach (var kv in snap)
         {
             var rel = kv.Key;
@@ -123,6 +132,8 @@ static class Stats
             string? actual = null;
             try { actual = Hash(abs); } catch { }
             if (actual != expected) changed.Add(rel);
+            done++;
+            progress?.Invoke(done, total);
         }
         return new IntegrityResult(changed.Count == 0, changed, false);
     }

@@ -4,7 +4,7 @@ namespace PetusLauncher;
 
 // Frameless main window: custom VK-2010 title bar, left game sidebar, right
 // content area that renders the selected game's store-style page.
-public partial class MainForm : Form
+public partial class MainForm : Form, IMessageFilter
 {
     // --- title bar ---
     Panel _titleBar = null!;
@@ -24,6 +24,13 @@ public partial class MainForm : Form
     string _currentGameId = "";
     readonly Dictionary<string, Button> _sidebarButtons = new();
 
+    // Custom (scrollbar-less) vertical scrolling of the content area.
+    int _scrollOffset;
+    // Startup update check runs once; result stashed so the GDPS page can show
+    // an "Обновить" button without re-hitting the network on every render.
+    bool _startupChecked;
+    bool _gdpsUpdateAvailable;
+
     public MainForm()
     {
         Text = "PetusLauncher";
@@ -39,16 +46,42 @@ public partial class MainForm : Form
         BuildTitleBar();
         BuildBody();
 
+        // Thin light border around the whole frameless window.
+        Padding = new Padding(1);
+        Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.AppBorder);
+            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        };
+
         GameLauncher.GameClosed += _ => BeginInvoke(() => { if (_currentGameId != "") ShowGame(_currentGameId); });
+
+        // Route mouse-wheel to the content area even when it doesn't hold focus.
+        Application.AddMessageFilter(this);
+        FormClosed += (_, _) => Application.RemoveMessageFilter(this);
 
         Load += (_, _) => Boot();
     }
 
-    void Boot()
+    // WM_MOUSEWHEEL routing: scroll the content page when the cursor is over it.
+    public bool PreFilterMessage(ref Message m)
+    {
+        const int WM_MOUSEWHEEL = 0x020A;
+        if (m.Msg != WM_MOUSEWHEEL || _content == null || !_content.IsHandleCreated) return false;
+        var screen = new Point((short)((long)m.LParam & 0xFFFF), (short)(((long)m.LParam >> 16) & 0xFFFF));
+        if (!_content.RectangleToScreen(_content.ClientRectangle).Contains(screen)) return false;
+        int delta = (short)(((long)m.WParam >> 16) & 0xFFFF);
+        ScrollContent(delta);
+        return true;
+    }
+
+    async void Boot()
     {
         BuildSidebar();
         _auth = Auth.Load();
         RenderAuthState();
+        // Startup: check for launcher + game updates.
+        await RunStartupUpdateCheck();
     }
 
     // ---------------- title bar ----------------
@@ -96,9 +129,9 @@ public partial class MainForm : Form
 
         _userMenu = new ContextMenuStrip { Font = new Font(Theme.FontName, 9) };
         _userMenu.Items.Add("Профиль", null, (_, _) =>
-            Auth.OpenBrowser($"{Config.Site}/u/{Uri.EscapeDataString(_auth?.Name ?? "")}"));
+            Auth.OpenBrowser("https://id.petus.ru"));
         _userMenu.Items.Add("Настройки", null, (_, _) =>
-            Auth.OpenBrowser($"{Config.Site}/dashboard"));
+            Auth.OpenBrowser("https://id.petus.ru/personal"));
         _userMenu.Items.Add(new ToolStripSeparator());
         _userMenu.Items.Add("Выйти", null, (_, _) =>
         {
@@ -194,7 +227,9 @@ public partial class MainForm : Form
 
         Controls.Add(_sidebar);
 
-        _content = new Panel { BackColor = Theme.Bg, AutoScroll = true };
+        _content = new Panel { BackColor = Theme.Bg, AutoScroll = false };
+        // No visible scrollbar: scroll the content by mouse wheel instead.
+        _content.MouseWheel += (_, e) => ScrollContent(e.Delta);
         Controls.Add(_content);
 
         Resize += (_, _) => DoLayout();
@@ -284,6 +319,94 @@ public partial class MainForm : Form
     }
 
     // The rest (ShowLogin, ShowGame, modals) is in MainForm.Pages.cs
+
+    // ---------------- custom content scrolling (no visible scrollbar) --------
+    // Because _content.AutoScroll is off, tall pages are scrolled by shifting all
+    // child controls vertically. _scrollOffset is the current shift (0 = top,
+    // negative = scrolled down). Reset to 0 whenever the page is re-rendered.
+    void ScrollContent(int delta)
+    {
+        if (_content.Controls.Count == 0) return;
+        int viewH = _content.ClientSize.Height;
+        int contentH = 0;
+        foreach (Control c in _content.Controls)
+            contentH = Math.Max(contentH, c.Bottom - _scrollOffset); // height in unscrolled coords
+        if (contentH <= viewH) return;                               // nothing to scroll
+
+        int min = -(contentH - viewH + 12);                          // small bottom breathing room
+        int newOffset = Math.Clamp(_scrollOffset + delta / 2, min, 0);
+        int shift = newOffset - _scrollOffset;
+        if (shift == 0) return;
+        _content.SuspendLayout();
+        foreach (Control c in _content.Controls) c.Top += shift;
+        _content.ResumeLayout();
+        _scrollOffset = newOffset;
+    }
+
+    // ---------------- launcher dialogs (no open-lag) ------------------------
+    // Content-area rectangle used to center in-window dialogs.
+    Rectangle DialogArea()
+    {
+        int x = _sidebar.Visible ? 190 : 0;
+        return new Rectangle(x, 40, ClientSize.Width - x, ClientSize.Height - 40);
+    }
+
+    // Add + center a LauncherDialog with NO visible jump: it is positioned while
+    // invisible, then shown in place.
+    void ShowLauncherDialog(LauncherDialog d)
+    {
+        d.Root.Visible = false;
+        Controls.Add(d.Root);
+        d.CenterIn(DialogArea());
+        d.Root.Visible = true;
+        d.Root.BringToFront();
+    }
+
+    // ---------------- startup update check ----------------------------------
+    async Task RunStartupUpdateCheck()
+    {
+        if (_startupChecked) return;
+        _startupChecked = true;
+
+        var dlg = new LauncherDialog("Проверка обновлений…", 340, 128);
+        var lbl = new Label
+        {
+            Text = "Проверяем наличие обновлений…",
+            ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9),
+            AutoSize = false, Location = new Point(18, 20), Size = new Size(300, 40),
+        };
+        var bar = new ProgressBar
+        {
+            Style = ProgressBarStyle.Continuous, Maximum = 1000, Visible = false,
+            Location = new Point(18, 66), Size = new Size(300, 14),
+        };
+        dlg.Body.Controls.Add(lbl);
+        dlg.Body.Controls.Add(bar);
+        ShowLauncherDialog(dlg);
+
+        try
+        {
+            var info = await SelfUpdate.CheckAsync();
+            if (info != null && SelfUpdate.IsNewer(info.Version))
+            {
+                lbl.Text = $"Загрузка обновления лаунчера {info.Version}…";
+                bar.Visible = true;
+                await SelfUpdate.DownloadAndApplyAsync(info, frac => BeginInvoke(() =>
+                    bar.Value = Math.Min(1000, (int)(frac * 1000))));
+                Application.Exit();
+                return;
+            }
+            // No launcher update — pre-check the GDPS game update in the background
+            // so its page can offer an "Обновить" button.
+            _gdpsUpdateAvailable = await Updater.UpdateAvailableAsync();
+        }
+        catch { /* offline or transient: continue silently */ }
+
+        dlg.Close();
+        if (_gdpsUpdateAvailable && _currentGameId != "")
+            ShowGame(_currentGameId); // refresh so "Обновить" appears
+    }
+
     void EnableDrag(Control c)
     {
         c.MouseDown += (_, e) =>

@@ -1,3 +1,5 @@
+using System.Drawing.Drawing2D;
+
 namespace PetusLauncher;
 
 // Page rendering: login gate, game store pages, and the in-window modal.
@@ -5,20 +7,12 @@ public partial class MainForm
 {
     Panel? _modalOverlay;
 
-    // ---------------- properties + management ----------------
-    void ShowProperties(GameDef g)
-    {
-        using var pf = new PropertiesForm(g);
-        pf.ShowDialog(this);
-        if (pf.Tag as string == "play") { StartGame(g); }
-        else if (pf.Tag as string == "deleted") { ShowGame(g.Id); }
-    }
-
     // Central "play/install" entry so the context menu and Properties both use it.
     void StartGame(GameDef g)
     {
         ShowGame(g.Id); // ensure the page is visible, then trigger its main button
-        var main = _content.Controls.OfType<Button>().FirstOrDefault(b => b.Text is "Играть" or "Установить игру");
+        var main = _content.Controls.OfType<Button>()
+            .FirstOrDefault(b => b.Text is "Играть" or "Установить" or "Обновить");
         main?.PerformClick();
     }
 
@@ -26,7 +20,15 @@ public partial class MainForm
     ContextMenuStrip BuildGameContextMenu(GameDef g)
     {
         var menu = new ContextMenuStrip { Font = new Font(Theme.FontName, 9) };
-        menu.Items.Add("Играть", null, (_, _) => StartGame(g));
+
+        // The primary action reads green, like the site's play button.
+        var play = new ToolStripMenuItem("Играть")
+        {
+            ForeColor = Theme.Green2,
+            Font = new Font(Theme.FontName, 9, FontStyle.Bold),
+        };
+        play.Click += (_, _) => StartGame(g);
+        menu.Items.Add(play);
 
         var manage = new ToolStripMenuItem("Управление");
         manage.DropDownItems.Add("Удалить с устройства", null, (_, _) =>
@@ -48,25 +50,67 @@ public partial class MainForm
         return menu;
     }
 
-    // ---------------- settings (theme) ----------------
+    // ---------------- settings (theme + self-update) ----------------
     void ShowSettings()
     {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, Padding = new Padding(16) };
-        var lbl = new Label { Text = "Тема оформления лаунчера:", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(16, 14) };
-        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, Location = new Point(16, 40), Font = new Font(Theme.FontName, 10) };
+        var d = new LauncherDialog("Настройки", 400, 316);
+        var body = d.Body;
+
+        var themeLbl = new Label { Text = "Тема оформления лаунчера:", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(18, 16) };
+        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, Location = new Point(18, 40), Font = new Font(Theme.FontName, 10) };
         box.Items.AddRange(new object[] { "Светлая (ВК 2010)", "Тёмная" });
         box.SelectedIndex = LauncherSettings.ThemeName == "dark" ? 1 : 0;
 
-        var apply = Theme.MakeButton("Применить", true);
-        apply.Location = new Point(16, 82);
+        var apply = Theme.MakeButton("Применить тему", true);
+        apply.Location = new Point(18, 74);
         apply.Click += (_, _) =>
         {
             LauncherSettings.ThemeName = box.SelectedIndex == 1 ? "dark" : "light";
-            _modalOverlay?.Dispose(); _modalOverlay = null;
+            d.Close();
             ReapplyTheme();
         };
-        host.Controls.AddRange(new Control[] { lbl, box, apply });
-        ShowModalControl("Настройки", host, 320, 170);
+
+        var divider = new Panel { BackColor = Theme.BorderLight, Location = new Point(18, 122), Size = new Size(346, 1) };
+
+        var verLbl = new Label { Text = $"Версия лаунчера: {SelfUpdate.CurrentVersion}", ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(18, 136) };
+        var check = Theme.MakeButton("Проверить обновления", false);
+        check.Location = new Point(18, 162);
+        var upStatus = new Label { Text = "", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(18, 202) };
+        var upBar = new ProgressBar { Style = ProgressBarStyle.Continuous, Maximum = 1000, Visible = false, Location = new Point(18, 226), Size = new Size(346, 12) };
+
+        check.Click += async (_, _) =>
+        {
+            check.Enabled = false;
+            upStatus.ForeColor = Theme.Text;
+            upStatus.Text = "Проверка…";
+            try
+            {
+                var info = await SelfUpdate.CheckAsync();
+                if (info != null && SelfUpdate.IsNewer(info.Version))
+                {
+                    upStatus.Text = $"Доступна версия {info.Version}. Загрузка…";
+                    upBar.Visible = true;
+                    await SelfUpdate.DownloadAndApplyAsync(info, frac => BeginInvoke(() =>
+                        upBar.Value = Math.Min(1000, (int)(frac * 1000))));
+                    Application.Exit();
+                }
+                else
+                {
+                    upStatus.ForeColor = Theme.Green2;
+                    upStatus.Text = "У вас актуальная версия.";
+                    check.Enabled = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                upStatus.ForeColor = Color.FromArgb(0xC0, 0x39, 0x2B);
+                upStatus.Text = "Ошибка: " + ex.Message;
+                check.Enabled = true;
+            }
+        };
+
+        body.Controls.AddRange(new Control[] { themeLbl, box, apply, divider, verLbl, check, upStatus, upBar });
+        ShowLauncherDialog(d);
     }
 
     // Re-read the palette everywhere after a theme switch.
@@ -89,6 +133,7 @@ public partial class MainForm
     {
         foreach (Control c in _content.Controls) c.Dispose();
         _content.Controls.Clear();
+        _scrollOffset = 0;
     }
 
     // ---------------- login ----------------
@@ -212,7 +257,6 @@ public partial class MainForm
             Padding = new Padding(10, 0, 0, 0),
         };
         head.Paint += (s, e) => Theme.PaintVGradient(e.Graphics, head.ClientRectangle, Theme.PanelHead1, Theme.PanelHead2);
-        head.Click += (s, e) => { };
         body = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, AutoSize = true };
         card.Controls.Add(body);
         card.Controls.Add(head);
@@ -224,14 +268,29 @@ public partial class MainForm
         int cw = _content.ClientSize.Width - 48;
         var st = Stats.Get(g.Id);
         bool installed = Updater.IsInstalled();
+        bool updateAvail = installed && _gdpsUpdateAvailable;
 
-        // action row — folder/integrity moved into Свойства (right-click the game).
-        y += 14;
-        var mainBtn = Theme.MakeButton(installed ? "Играть" : "Установить игру", true, 11);
+        // action row — Свойства lives in the right-click menu now.
+        y += 16;
+        string mainLabel = !installed ? "Установить" : updateAvail ? "Обновить" : "Играть";
+        var mainBtn = Theme.MakeButton(mainLabel, true, 11);
         mainBtn.Location = new Point(24, y);
 
-        var status = new Label { ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true, Text = installed ? "Готов к запуску" : "Игра не установлена" };
-        var progress = new ProgressBar { Style = ProgressBarStyle.Continuous, Width = 360, Height = 14, Visible = false, Maximum = 1000 };
+        var status = new Label
+        {
+            ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true,
+            Text = !installed ? "Игра не установлена" : updateAvail ? "Доступно обновление" : "Готов к запуску",
+        };
+        var progress = ThinProgress();
+
+        // Compact inline stats to the RIGHT of the button.
+        var group = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Color.Transparent, Location = new Point(mainBtn.Right + 22, y - 2) };
+        group.Controls.Add(InlineStat("Наиграно", FmtDuration(st.PlaySeconds), out _));
+        group.Controls.Add(InlineStat("Последний запуск", FmtDate(st.LastPlayed), out _));
+        Label? sizeVal = null;
+        if (!installed || updateAvail)
+            group.Controls.Add(InlineStat(updateAvail ? "Размер обновления" : "Размер загрузки", "…", out sizeVal));
+        _content.Controls.Add(group);
 
         mainBtn.Click += async (_, _) =>
         {
@@ -245,11 +304,12 @@ public partial class MainForm
                     if (stage == "download") { progress.Visible = true; progress.Value = Math.Min(1000, (int)(frac * 1000)); }
                     else if (stage is "ready" or "uptodate") progress.Visible = false;
                 }));
+                _gdpsUpdateAvailable = false;
                 Stats.UpdateSize(g.Id, Config.GameDir);
                 Stats.Snapshot(g.Id, Config.GameDir);
                 GameLauncher.Launch(_auth!);
                 status.Text = "Игра запущена!";
-                ShowGame(g.Id); // refresh (button becomes Играть, size updates)
+                ShowGame(g.Id); // refresh (button becomes Играть, size hidden)
             }
             catch (Exception ex)
             {
@@ -258,38 +318,15 @@ public partial class MainForm
             }
         };
 
-        var propBtn = Theme.MakeButton("Свойства", false);
-        propBtn.Location = new Point(mainBtn.Right + 10, y + 3);
-        propBtn.Click += (_, _) => ShowProperties(g);
-        _content.Controls.AddRange(new Control[] { mainBtn, propBtn });
+        _content.Controls.Add(mainBtn);
         y += 44;
-        status.Location = new Point(24, y); _content.Controls.Add(status); y += 22;
+        status.Location = new Point(24, y); _content.Controls.Add(status); y += 20;
         progress.Location = new Point(24, y); _content.Controls.Add(progress); y += 8;
 
-        // about card
-        y += 8;
-        var aboutCard = MakeCard("Об игре", cw, y, out var abody);
-        var about = new Label { Text = g.Description, ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = false, Dock = DockStyle.Top, Height = 64, Padding = new Padding(12, 8, 12, 0) };
-        abody.Controls.Add(about);
-        aboutCard.Height = 26 + 64;
-        _content.Controls.Add(aboutCard);
-        y += aboutCard.Height + 14;
-
-        // stats card
-        var statsCard = MakeCard("Статистика", cw, y, out var sbody);
-        var grid = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, Height = 56, BackColor = Theme.Panel };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.Controls.Add(StatCell("Наиграно", FmtDuration(st.PlaySeconds)), 0, 0);
-        grid.Controls.Add(StatCell("Размер", FmtSize(st.SizeBytes)), 1, 0);
-        grid.Controls.Add(StatCell("Последний запуск", FmtDate(st.LastPlayed)), 2, 0);
-        sbody.Controls.Add(grid);
-        statsCard.Height = 26 + 56;
-        _content.Controls.Add(statsCard);
-        y += statsCard.Height + 14;
+        if (sizeVal != null) _ = FillRemoteSize(sizeVal);
 
         // updates card
+        y += 12;
         var upCard = MakeUpdatesCard(g, cw, y);
         _content.Controls.Add(upCard);
         y += upCard.Height + 20;
@@ -301,27 +338,35 @@ public partial class MainForm
         var st = Stats.Get(g.Id);
         var acc = LauncherSettings.McAccount;
 
-        // action row: Играть + версия + аккаунт
-        y += 14;
+        // action row: Играть + inline stats
+        y += 16;
         var playBtn = Theme.MakeButton("Играть", true, 11);
         playBtn.Location = new Point(24, y);
 
+        var group = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Color.Transparent, Location = new Point(playBtn.Right + 22, y - 2) };
+        group.Controls.Add(InlineStat("Наиграно", FmtDuration(st.PlaySeconds), out _));
+        group.Controls.Add(InlineStat("Последний запуск", FmtDate(st.LastPlayed), out _));
+        _content.Controls.Add(group);
+        _content.Controls.Add(playBtn);
+        y += 44;
+
+        // Online status on its own tidy line under the action row.
         var online = new Label
         {
             Text = "● проверка статуса…",
             ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9),
-            AutoSize = true, Location = new Point(playBtn.Right + 14, y + 9),
+            AutoSize = true, Location = new Point(24, y),
         };
         _content.Controls.Add(online);
         _ = LoadMcStatus(g.Ip!, online);
-        _content.Controls.Add(playBtn);
-        y += 44;
+        y += 22;
 
         var status = new Label { ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(24, y) };
-        var progress = new ProgressBar { Style = ProgressBarStyle.Continuous, Width = 360, Height = 14, Visible = false, Maximum = 1000, Location = new Point(24, y + 20) };
+        var progress = ThinProgress();
+        progress.Location = new Point(24, y + 18);
         _content.Controls.Add(status);
         _content.Controls.Add(progress);
-        y += 46;
+        y += 44;
 
         // settings card: версия клиента + аккаунт
         var setCard = MakeCard("Запуск", cw, y, out var setBody);
@@ -340,7 +385,7 @@ public partial class MainForm
         setBody.Controls.AddRange(new Control[] { verLbl, verBox, verHint, accLbl, accName, loginBtn });
         setCard.Height = 26 + 78;
         _content.Controls.Add(setCard);
-        y += setCard.Height + 14;
+        y += setCard.Height + 16;
 
         // populate versions async
         _ = PopulateMcVersions(verBox);
@@ -364,14 +409,14 @@ public partial class MainForm
                     var refreshed = await MicrosoftAuth.RefreshAsync(account);
                     if (refreshed != null) { account = refreshed; LauncherSettings.McAccount = refreshed; }
                 }
-                var TXT = new Dictionary<string, string> { ["manifest"] = "Получение манифеста…", ["libraries"] = "Загрузка библиотек…", ["assets"] = "Загрузка ресурсов…", ["java"] = "Загрузка Java…", ["launch"] = "Запуск…" };
+                var TXT = new Dictionary<string, string> { ["manifest"] = "Получение манифеста…", ["libraries"] = "Загрузка библиотек…", ["assets"] = "Загрузка ресурсов…", ["java"] = "Загрузка Java…", ["forge"] = "Установка Forge…", ["meteor"] = "Загрузка Meteor…", ["launch"] = "Запуск…" };
                 var proc = await MinecraftLauncher.InstallAndLaunchAsync(ver, account, LauncherSettings.McRamMb,
                     (stage, frac) => BeginInvoke(() =>
                     {
                         status.Text = TXT.GetValueOrDefault(stage, stage);
                         progress.Visible = frac > 0 && frac < 1;
                         progress.Value = Math.Min(1000, (int)(frac * 1000));
-                    }), g.Ip);
+                    }), g.Ip, forgeMeteor: true);
                 Stats.SetLastPlayed(g.Id, startedAt);
                 Stats.UpdateSize(g.Id, Config.McDir);
                 status.Text = "Minecraft запущен!";
@@ -391,38 +436,11 @@ public partial class MainForm
                 playBtn.Enabled = true; loginBtn.Enabled = true;
             }
         };
-
-        // about card
-        var about = MakeCard("О сервере", cw, y, out var abody);
-        var lbl = new Label
-        {
-            Text = g.Description + $"\n\nIP: {g.Ip}",
-            ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9),
-            AutoSize = false, Dock = DockStyle.Top, Height = 96, Padding = new Padding(12, 8, 12, 0),
-        };
-        abody.Controls.Add(lbl);
-        about.Height = 26 + 96;
-        _content.Controls.Add(about);
-        y += about.Height + 14;
-
-        // stats card (playtime + last launch)
-        var statsCard = MakeCard("Статистика", cw, y, out var sbody);
-        var grid = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, Height = 56, BackColor = Theme.Panel };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.Controls.Add(StatCell("Наиграно", FmtDuration(st.PlaySeconds)), 0, 0);
-        grid.Controls.Add(StatCell("Размер", FmtSize(st.SizeBytes)), 1, 0);
-        grid.Controls.Add(StatCell("Последний запуск", FmtDate(st.LastPlayed)), 2, 0);
-        sbody.Controls.Add(grid);
-        statsCard.Height = 26 + 56;
-        _content.Controls.Add(statsCard);
-        y += statsCard.Height + 14;
-
-        var upCard = MakeUpdatesCard(g, cw, y);
-        _content.Controls.Add(upCard);
-        y += upCard.Height + 20;
     }
+
+    // A thin, unobtrusive progress bar shown only while downloading.
+    static ProgressBar ThinProgress() =>
+        new ProgressBar { Style = ProgressBarStyle.Continuous, Width = 300, Height = 8, Visible = false, Maximum = 1000 };
 
     // Fetch release versions and select the recommended server version by default.
     async Task PopulateMcVersions(ComboBox box)
@@ -538,45 +556,109 @@ public partial class MainForm
         }
     }
 
+    // A polished "Обновления" card: version chips + notes, click a row for the
+    // full note in a launcher dialog. GDPS only (removed from MC).
     Panel MakeUpdatesCard(GameDef g, int cw, int y)
     {
         var card = MakeCard("Обновления", cw, y, out var body);
-        var list = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, AutoSize = true, BackColor = Theme.Panel };
-        int rows = 0;
+        var accent = g.Type == "gdps" ? Color.FromArgb(0x7B, 0x61, 0xFF) : Theme.Green2;
+        var list = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, AutoSize = true, BackColor = Theme.Panel, Padding = new Padding(8, 6, 8, 8) };
+        int rowW = cw - 20;
         foreach (var u in g.Changelog)
         {
-            var row = new Button
-            {
-                Text = $"   v{u.Version}    {(u.Notes.Length > 52 ? u.Notes[..52] + "…" : u.Notes)}",
-                TextAlign = ContentAlignment.MiddleLeft,
-                FlatStyle = FlatStyle.Flat,
-                ForeColor = Theme.Text,
-                Font = new Font(Theme.FontName, 9),
-                Width = cw - 4,
-                Height = 30,
-                BackColor = Theme.Panel,
-                Cursor = Cursors.Hand,
-            };
-            row.FlatAppearance.BorderSize = 0;
-            row.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xEE, 0xF3, 0xF8);
             var uu = u;
-            row.Click += (_, _) => ShowModal($"{g.Name} — обновление",
-                $"Версия {uu.Version}\n\n{uu.Notes}");
+            var row = new Panel { Width = rowW, Height = 34, BackColor = Theme.Panel, Cursor = Cursors.Hand, Margin = new Padding(0, 0, 0, 4) };
+            var chip = VersionChip(uu.Version, accent);
+            chip.Location = new Point(2, (row.Height - chip.Height) / 2);
+            var note = new Label
+            {
+                Text = uu.Notes.Length > 64 ? uu.Notes[..64] + "…" : uu.Notes,
+                ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9),
+                AutoSize = false, TextAlign = ContentAlignment.MiddleLeft,
+                Location = new Point(chip.Right + 10, 0), Size = new Size(rowW - chip.Width - 20, row.Height),
+            };
+            void hover(bool on) => row.BackColor = on ? (LauncherSettings.ThemeName == "dark" ? Theme.PanelHead1 : Color.FromArgb(0xEE, 0xF3, 0xF8)) : Theme.Panel;
+            void open(object? s, EventArgs e) => OpenNoteDialog(g, uu);
+            foreach (Control c in new Control[] { row, chip, note })
+            {
+                c.Click += open;
+                c.MouseEnter += (_, _) => hover(true);
+                c.MouseLeave += (_, _) => hover(false);
+            }
+            row.Controls.Add(note);
+            row.Controls.Add(chip);
             list.Controls.Add(row);
-            rows++;
         }
         body.Controls.Add(list);
-        card.Height = 26 + rows * 30 + 2;
+        card.Height = 26 + g.Changelog.Length * 38 + 14;
         return card;
     }
 
-    Panel StatCell(string label, string value)
+    void OpenNoteDialog(GameDef g, ChangelogEntry u)
     {
-        var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel };
-        var v = new Label { Text = value, ForeColor = Theme.Text, Font = new Font(Theme.FontName, 11, FontStyle.Bold), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Top, Height = 28 };
-        var l = new Label { Text = label, ForeColor = Color.FromArgb(0x86, 0x97, 0xA8), Font = new Font(Theme.FontName, 8), TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Top, Height = 18 };
-        p.Controls.Add(l); p.Controls.Add(v);
+        var d = new LauncherDialog($"{g.Name} — обновление {u.Version}", 380, 220);
+        var note = new Label
+        {
+            Text = u.Notes,
+            ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9),
+            AutoSize = false, Dock = DockStyle.Fill, Padding = new Padding(16),
+        };
+        d.Body.Controls.Add(note);
+        ShowLauncherDialog(d);
+    }
+
+    // A rounded VK-style version pill.
+    Panel VersionChip(string text, Color color)
+    {
+        var font = new Font(Theme.FontName, 8, FontStyle.Bold);
+        int w = Math.Max(46, TextRenderer.MeasureText(text, font).Width + 18);
+        var chip = new Panel { Height = 20, Width = w, BackColor = Color.Transparent, Cursor = Cursors.Hand };
+        chip.Paint += (s, e) =>
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            var r = new Rectangle(0, 0, chip.Width - 1, chip.Height - 1);
+            using var path = RoundedRect(r, 7);
+            using var b = new SolidBrush(color);
+            e.Graphics.FillPath(b, path);
+            TextRenderer.DrawText(e.Graphics, text, font, new Rectangle(0, 0, chip.Width, chip.Height), Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+        return chip;
+    }
+
+    static GraphicsPath RoundedRect(Rectangle r, int radius)
+    {
+        int d = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    // Small stacked value/label used in the inline stats group next to the button.
+    Panel InlineStat(string label, string value, out Label valueLabel)
+    {
+        var p = new Panel { AutoSize = false, Width = Math.Max(96, TextRenderer.MeasureText(value, new Font(Theme.FontName, 10, FontStyle.Bold)).Width + 18), Height = 40, BackColor = Color.Transparent, Margin = new Padding(0, 0, 18, 0) };
+        var v = new Label { Text = value, ForeColor = Theme.Text, Font = new Font(Theme.FontName, 10, FontStyle.Bold), AutoSize = false, Dock = DockStyle.Top, Height = 20, TextAlign = ContentAlignment.MiddleLeft };
+        var l = new Label { Text = label, ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 8), AutoSize = false, Dock = DockStyle.Top, Height = 16, TextAlign = ContentAlignment.MiddleLeft };
+        p.Controls.Add(l);
+        p.Controls.Add(v);
+        valueLabel = v;
         return p;
+    }
+
+    async Task FillRemoteSize(Label target)
+    {
+        try
+        {
+            long sz = await Updater.RemoteSizeAsync();
+            if (target.IsHandleCreated)
+                target.BeginInvoke(() => target.Text = sz > 0 ? FmtSize(sz) : "—");
+        }
+        catch { }
     }
 
     // ---------------- modals ----------------
@@ -599,7 +681,7 @@ public partial class MainForm
         _modalOverlay?.Dispose();
         // Floating, centered card — the page behind stays visible (no full dim
         // that would hide the store page). A soft shadow gives depth.
-        _modalOverlay = new Panel { BackColor = Color.Transparent, Width = w + 12, Height = h + 12 };
+        _modalOverlay = new Panel { BackColor = Color.Transparent, Width = w + 12, Height = h + 12, Visible = false };
 
         var shadow = new Panel
         {
@@ -626,9 +708,11 @@ public partial class MainForm
         _modalOverlay.Controls.Add(shadow);
         shadow.SendToBack();
 
+        // Position while invisible, then reveal — no top-left → center jump.
         Controls.Add(_modalOverlay);
-        _modalOverlay.BringToFront();
         CenterModal();
+        _modalOverlay.Visible = true;
+        _modalOverlay.BringToFront();
     }
 
     void CenterModal()

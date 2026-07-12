@@ -14,14 +14,14 @@ static class Updater
     static HttpClient MakeClient()
     {
         var c = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("PetusLauncher/2.0");
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("PetusLauncher/2.2");
         return c;
     }
 
     public static bool IsInstalled()
         => File.Exists(Path.Combine(Config.GameDir, Config.ExeName));
 
-    static string? InstalledVersion()
+    public static string? InstalledVersion()
     {
         try
         {
@@ -29,6 +29,31 @@ static class Updater
             return doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : null;
         }
         catch { return null; }
+    }
+
+    // True if a newer game build is available than what's installed.
+    public static async Task<bool> UpdateAvailableAsync()
+    {
+        try
+        {
+            var m = await FetchManifestAsync();
+            return IsInstalled() && InstalledVersion() != m.Version;
+        }
+        catch { return false; }
+    }
+
+    // Download size (Content-Length) of the current game zip — used to show the
+    // install/update size without downloading. Returns 0 if unknown.
+    public static async Task<long> RemoteSizeAsync()
+    {
+        try
+        {
+            var m = await FetchManifestAsync();
+            using var req = new HttpRequestMessage(HttpMethod.Head, m.Url);
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            return resp.Content.Headers.ContentLength ?? 0;
+        }
+        catch { return 0; }
     }
 
     static void WriteInstalled(string version)

@@ -14,6 +14,9 @@ static class Config
     // Game update manifest served by the core (Kestrel, no CDN cache).
     public static string UpdateManifest => $"{Core}/api/game/manifest";
 
+    // Launcher self-update manifest (checked on startup).
+    public static string LauncherManifest => $"{Core}/api/launcher/version";
+
     static string LocalAppData => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
     // Per-user install locations (no admin rights needed).

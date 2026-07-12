@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace PetusLauncher;
 
@@ -16,6 +17,11 @@ static class MinecraftLauncher
     const string JavaRuntimesUrl = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
     const string AssetsCdn = "https://resources.download.minecraft.net";
     const string LibrariesCdn = "https://libraries.minecraft.net";
+
+    // Forge + Meteor (PetusMC always launches Forge with the Meteor mod).
+    const string ForgePromotions = "https://files.minecraftforge.net/net/maven/net/minecraftforge/forge/promotions_slim.json";
+    const string ForgeMaven = "https://maven.minecraftforge.net/net/minecraftforge/forge";
+    const string MeteorDownload = "https://meteorclient.com/api/download";
 
     static readonly HttpClient Http = MakeClient();
 
@@ -63,43 +69,226 @@ static class MinecraftLauncher
         => File.Exists(VersionJarPath(versionId)) && File.Exists(VersionJsonPath(versionId));
 
     // Install everything for a version, then launch the game. See interface docs.
+    // When forgeMeteor is true (PetusMC), Forge is installed for the version and
+    // the Meteor client mod is placed in mods/ before launching the Forge profile.
     public static async Task<Process> InstallAndLaunchAsync(
         string versionId, McAccount account, int ramMb,
-        Action<string, double> progress, string? serverIp)
+        Action<string, double> progress, string? serverIp, bool forgeMeteor = false)
     {
         Directory.CreateDirectory(Config.McDir);
 
-        // 1) Version json + client jar. -------------------------------------
+        // 1) Vanilla version json + client jar. -----------------------------
         progress("manifest", 0);
-        var versionJson = await EnsureVersionJsonAsync(versionId);
-        var root = versionJson.RootElement;
+        var vanillaDoc = await EnsureVersionJsonAsync(versionId);
+        var vanillaRoot = vanillaDoc.RootElement;
         progress("manifest", 0.4);
 
         var jarPath = VersionJarPath(versionId);
-        if (root.TryGetProperty("downloads", out var dl) && dl.TryGetProperty("client", out var client))
-            await DownloadFileAsync(client.GetProperty("url").GetString()!, jarPath, SizeOf(client));
+        if (vanillaRoot.TryGetProperty("downloads", out var dl0) && dl0.TryGetProperty("client", out var client0))
+            await DownloadFileAsync(client0.GetProperty("url").GetString()!, jarPath, SizeOf(client0));
         progress("manifest", 1);
 
-        // 2) Libraries + native extraction. ---------------------------------
-        var (classpath, nativeJars) = await DownloadLibrariesAsync(root, progress);
-        ExtractNatives(nativeJars, NativesDir(versionId));
+        // Effective launch root + version id. For Forge this is the merged
+        // (vanilla ⊕ forge) json; for vanilla it's just the vanilla root.
+        JsonDocument? mergedDoc = null;
+        JsonElement root = vanillaRoot;
+        string launchId = versionId;
 
-        // 3) Assets. --------------------------------------------------------
-        var assetIndexId = await DownloadAssetsAsync(root, progress);
+        if (forgeMeteor)
+        {
+            // Java is needed to run the Forge installer headlessly.
+            var javaForInstaller = await EnsureJavaAsync(vanillaRoot, progress);
+            var forgeId = await EnsureForgeAsync(versionId, javaForInstaller, progress);
 
-        // 4) Java runtime. --------------------------------------------------
-        var javaw = await EnsureJavaAsync(root, progress);
+            using var forgeDoc = JsonDocument.Parse(await File.ReadAllTextAsync(VersionJsonPath(forgeId)));
+            mergedDoc = MergeInherited(vanillaRoot, forgeDoc.RootElement);
+            root = mergedDoc.RootElement;
+            launchId = forgeId;
 
-        // 5) Build the launch command + start. ------------------------------
-        progress("launch", 0);
-        classpath.Add(jarPath); // client jar goes on the classpath last
-        var psi = BuildStartInfo(root, versionId, account, ramMb, serverIp,
-            javaw, classpath, assetIndexId);
+            // Meteor client mod → mods/.
+            await EnsureMeteorAsync(progress);
+        }
 
-        var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        proc.Start();
-        progress("launch", 1);
-        return proc;
+        try
+        {
+            // 2) Libraries + native extraction. ------------------------------
+            var (classpath, nativeJars) = await DownloadLibrariesAsync(root, progress);
+            ExtractNatives(nativeJars, NativesDir(versionId));
+
+            // 3) Assets (from the vanilla/inherited json). -------------------
+            var assetIndexId = await DownloadAssetsAsync(root, progress);
+
+            // 4) Java runtime. -----------------------------------------------
+            var javaw = await EnsureJavaAsync(root, progress);
+
+            // 5) Build the launch command + start. ---------------------------
+            progress("launch", 0);
+            classpath.Add(jarPath); // client jar goes on the classpath last
+            var psi = BuildStartInfo(root, launchId, account, ramMb, serverIp,
+                javaw, classpath, assetIndexId, versionId);
+
+            var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            proc.Start();
+            progress("launch", 1);
+            return proc;
+        }
+        finally
+        {
+            mergedDoc?.Dispose();
+        }
+    }
+
+    // ------------------------------------------------------------------ forge
+
+    // Resolve, download and headlessly install Forge for a Minecraft version.
+    // Returns the installed Forge version-profile id (folder under versions/).
+    // Skips work if the profile already exists.
+    static async Task<string> EnsureForgeAsync(string mcVersion, string javaw, Action<string, double> progress)
+    {
+        progress("forge", 0);
+        var forgeVer = await ResolveForgeVersionAsync(mcVersion);
+        var forgeId = $"{mcVersion}-forge-{forgeVer}";
+        if (File.Exists(VersionJsonPath(forgeId))) { progress("forge", 1); return forgeId; }
+
+        // Download the Forge installer jar.
+        var installerUrl = $"{ForgeMaven}/{mcVersion}-{forgeVer}/forge-{mcVersion}-{forgeVer}-installer.jar";
+        var installer = Path.Combine(Config.McDir, $"forge-{mcVersion}-{forgeVer}-installer.jar");
+        await DownloadFileAsync(installerUrl, installer, 0);
+        progress("forge", 0.4);
+
+        // Modern installers require a launcher_profiles.json in the target dir.
+        var profiles = Path.Combine(Config.McDir, "launcher_profiles.json");
+        if (!File.Exists(profiles))
+            await File.WriteAllTextAsync(profiles, "{\"profiles\":{},\"selectedProfile\":\"\",\"clientToken\":\"petus\"}");
+
+        // Run: java -jar forge-installer.jar --installClient <McDir>
+        var java = javaw.Replace("javaw.exe", "java.exe");
+        if (!File.Exists(java)) java = javaw;
+        var psi = new ProcessStartInfo
+        {
+            FileName = java,
+            WorkingDirectory = Config.McDir,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add("-jar");
+        psi.ArgumentList.Add(installer);
+        psi.ArgumentList.Add("--installClient");
+        psi.ArgumentList.Add(Config.McDir);
+
+        using (var proc = new Process { StartInfo = psi })
+        {
+            proc.Start();
+            // Drain both pipes concurrently so a chatty installer can't deadlock.
+            var stdout = proc.StandardOutput.ReadToEndAsync();
+            var stderr = proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+            await Task.WhenAll(stdout, stderr);
+            if (!File.Exists(VersionJsonPath(forgeId)))
+                throw new Exception($"Установщик Forge завершился, но профиль {forgeId} не создан.\n{await stderr}");
+        }
+        try { File.Delete(installer); } catch { }
+        try { File.Delete(installer + ".log"); } catch { }
+        progress("forge", 1);
+        return forgeId;
+    }
+
+    // Pick the recommended (else latest) Forge build for a Minecraft version.
+    static async Task<string> ResolveForgeVersionAsync(string mcVersion)
+    {
+        using var doc = await GetJsonAsync(ForgePromotions);
+        if (!doc.RootElement.TryGetProperty("promos", out var promos))
+            throw new Exception("Не удалось получить список версий Forge.");
+        string? Get(string key) => promos.TryGetProperty(key, out var v) ? v.GetString() : null;
+        var forge = Get($"{mcVersion}-recommended") ?? Get($"{mcVersion}-latest");
+        if (string.IsNullOrEmpty(forge))
+            throw new Exception($"Для Minecraft {mcVersion} нет доступной версии Forge.");
+        return forge;
+    }
+
+    // ----------------------------------------------------------------- meteor
+
+    // Always (re)ensure the Meteor client mod is in mods/. Downloads from the
+    // official endpoint (302 → latest jar), following redirects with a UA.
+    static async Task EnsureMeteorAsync(Action<string, double> progress)
+    {
+        progress("meteor", 0);
+        var mods = Path.Combine(Config.McDir, "mods");
+        Directory.CreateDirectory(mods);
+        var jar = Path.Combine(mods, "meteor-client.jar");
+        if (File.Exists(jar) && new FileInfo(jar).Length > 0) { progress("meteor", 1); return; }
+
+        await WithRetry(async () =>
+        {
+            using var resp = await Http.GetAsync(MeteorDownload, HttpCompletionOption.ResponseHeadersRead);
+            resp.EnsureSuccessStatusCode();
+            var tmp = jar + ".part";
+            await using (var src = await resp.Content.ReadAsStreamAsync())
+            await using (var dst = File.Create(tmp))
+                await src.CopyToAsync(dst);
+            if (File.Exists(jar)) File.Delete(jar);
+            File.Move(tmp, jar);
+            return true;
+        });
+        progress("meteor", 1);
+    }
+
+    // Merge a child version json (inheritsFrom) with its parent into one root.
+    // Child wins for mainClass; libraries are child-first then parent; argument
+    // arrays are parent-then-child; assets/downloads/javaVersion come from parent.
+    static JsonDocument MergeInherited(JsonElement parent, JsonElement child)
+    {
+        var o = new JsonObject();
+
+        string mainClass = child.TryGetProperty("mainClass", out var mc) ? mc.GetString() ?? ""
+            : parent.TryGetProperty("mainClass", out var pmc) ? pmc.GetString() ?? "" : "";
+        o["mainClass"] = mainClass;
+
+        // libraries: child first (patched forge libs win on dedup), then parent.
+        var libs = new JsonArray();
+        if (child.TryGetProperty("libraries", out var cl))
+            foreach (var l in cl.EnumerateArray()) libs.Add(JsonNode.Parse(l.GetRawText()));
+        if (parent.TryGetProperty("libraries", out var pl))
+            foreach (var l in pl.EnumerateArray()) libs.Add(JsonNode.Parse(l.GetRawText()));
+        o["libraries"] = libs;
+
+        // Modern structured arguments: parent jvm/game, then child jvm/game.
+        bool parentModern = parent.TryGetProperty("arguments", out var pa);
+        bool childModern = child.TryGetProperty("arguments", out var ca);
+        if (parentModern || childModern)
+        {
+            var args = new JsonObject();
+            args["jvm"] = MergeArgArray(parentModern ? pa : default, childModern ? ca : default, "jvm");
+            args["game"] = MergeArgArray(parentModern ? pa : default, childModern ? ca : default, "game");
+            o["arguments"] = args;
+        }
+        // Legacy flat argument string (old Forge): child overrides parent.
+        if (child.TryGetProperty("minecraftArguments", out var cma))
+            o["minecraftArguments"] = cma.GetString();
+        else if (parent.TryGetProperty("minecraftArguments", out var pma))
+            o["minecraftArguments"] = pma.GetString();
+
+        // Inherited-from-parent fields needed for install + launch.
+        foreach (var key in new[] { "assetIndex", "assets", "downloads", "javaVersion", "logging" })
+            if (parent.TryGetProperty(key, out var el))
+                o[key] = JsonNode.Parse(el.GetRawText());
+
+        return JsonDocument.Parse(o.ToJsonString());
+    }
+
+    static JsonArray MergeArgArray(JsonElement parentArgs, JsonElement childArgs, string which)
+    {
+        var arr = new JsonArray();
+        void add(JsonElement args)
+        {
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(which, out var a) && a.ValueKind == JsonValueKind.Array)
+                foreach (var el in a.EnumerateArray()) arr.Add(JsonNode.Parse(el.GetRawText()));
+        }
+        add(parentArgs);
+        add(childArgs);
+        return arr;
     }
 
     // ---------------------------------------------------------------- version
@@ -392,9 +581,9 @@ static class MinecraftLauncher
 
     static ProcessStartInfo BuildStartInfo(
         JsonElement root, string versionId, McAccount account, int ramMb, string? serverIp,
-        string javaw, List<string> classpath, string assetIndexId)
+        string javaw, List<string> classpath, string assetIndexId, string nativesVersionId)
     {
-        var natives = NativesDir(versionId);
+        var natives = NativesDir(nativesVersionId);
         var cp = string.Join(';', classpath);
         bool offline = account.Type == "offline" || string.IsNullOrEmpty(account.AccessToken);
 
