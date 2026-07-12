@@ -16,6 +16,7 @@ public partial class MainForm : Form
     // --- body ---
     Panel _sidebar = null!;
     FlowLayoutPanel _gameList = null!;
+    Button _settingsBtn = null!;
     Panel _content = null!;
 
     // --- state ---
@@ -172,6 +173,25 @@ public partial class MainForm : Form
             Width = 190,
         };
         _sidebar.Controls.Add(_gameList);
+
+        // Settings button pinned to the bottom-left of the sidebar.
+        _settingsBtn = new Button
+        {
+            Text = "  ⚙  Настройки",
+            TextAlign = ContentAlignment.MiddleLeft,
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = Theme.Link,
+            Font = new Font(Theme.FontName, 9),
+            Width = 190,
+            Height = 34,
+            BackColor = Theme.SidebarBg,
+            Cursor = Cursors.Hand,
+        };
+        _settingsBtn.FlatAppearance.BorderSize = 0;
+        _settingsBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xE4, 0xEA, 0xF1);
+        _settingsBtn.Click += (_, _) => ShowSettings();
+        _sidebar.Controls.Add(_settingsBtn);
+
         Controls.Add(_sidebar);
 
         _content = new Panel { BackColor = Theme.Bg, AutoScroll = true };
@@ -189,7 +209,9 @@ public partial class MainForm : Form
         bool sideVisible = _sidebar.Visible;
         int sideW = sideVisible ? 190 : 0;
         if (sideVisible) _sidebar.SetBounds(0, 40, sideW, h - 40);
-        _gameList.Height = h - 40 - 34;
+        _gameList.Height = h - 40 - 34 - 40;   // leave room for the settings button
+        if (_settingsBtn != null)
+            _settingsBtn.Location = new Point(0, (h - 40) - 34);
         _content.SetBounds(sideW, 40, w - sideW, h - 40);
         CenterModal();
     }
@@ -222,6 +244,7 @@ public partial class MainForm : Form
                 e.Graphics.FillEllipse(br, 10, btn.Height / 2 - 4, 8, 8);
             };
             btn.Click += (_, _) => ShowGame(g.Id);
+            btn.ContextMenuStrip = BuildGameContextMenu(g);
             _gameList.Controls.Add(btn);
             _sidebarButtons[g.Id] = btn;
         }

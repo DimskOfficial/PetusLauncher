@@ -5,6 +5,86 @@ public partial class MainForm
 {
     Panel? _modalOverlay;
 
+    // ---------------- properties + management ----------------
+    void ShowProperties(GameDef g)
+    {
+        using var pf = new PropertiesForm(g);
+        pf.ShowDialog(this);
+        if (pf.Tag as string == "play") { StartGame(g); }
+        else if (pf.Tag as string == "deleted") { ShowGame(g.Id); }
+    }
+
+    // Central "play/install" entry so the context menu and Properties both use it.
+    void StartGame(GameDef g)
+    {
+        ShowGame(g.Id); // ensure the page is visible, then trigger its main button
+        var main = _content.Controls.OfType<Button>().FirstOrDefault(b => b.Text is "Играть" or "Установить игру");
+        main?.PerformClick();
+    }
+
+    // Right-click context menu for a game (sidebar button or page).
+    ContextMenuStrip BuildGameContextMenu(GameDef g)
+    {
+        var menu = new ContextMenuStrip { Font = new Font(Theme.FontName, 9) };
+        menu.Items.Add("Играть", null, (_, _) => StartGame(g));
+
+        var manage = new ToolStripMenuItem("Управление");
+        manage.DropDownItems.Add("Удалить с устройства", null, (_, _) =>
+        {
+            if (MessageBox.Show($"Удалить {g.Name} с устройства?", "PetusLauncher", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+            {
+                try { GameOps.DeleteInstall(g); ShowGame(g.Id); } catch (Exception ex) { MessageBox.Show(ex.Message); }
+            }
+        });
+        manage.DropDownItems.Add("Просмотреть локальные файлы", null, (_, _) => GameOps.OpenFolder(g));
+        manage.DropDownItems.Add("Создать ярлык на рабочем столе", null, (_, _) =>
+        { try { GameOps.CreateDesktopShortcut(g); MessageBox.Show("Ярлык создан.", "PetusLauncher"); } catch (Exception ex) { MessageBox.Show(ex.Message); } });
+        manage.DropDownItems.Add("Создать резервную копию", null, (_, _) =>
+        { try { var z = GameOps.Backup(g); MessageBox.Show("Резервная копия:\n" + z, "PetusLauncher"); } catch (Exception ex) { MessageBox.Show(ex.Message); } });
+        menu.Items.Add(manage);
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Свойства", null, (_, _) => ShowProperties(g));
+        return menu;
+    }
+
+    // ---------------- settings (theme) ----------------
+    void ShowSettings()
+    {
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, Padding = new Padding(16) };
+        var lbl = new Label { Text = "Тема оформления лаунчера:", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(16, 14) };
+        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, Location = new Point(16, 40), Font = new Font(Theme.FontName, 10) };
+        box.Items.AddRange(new object[] { "Светлая (ВК 2010)", "Тёмная" });
+        box.SelectedIndex = LauncherSettings.ThemeName == "dark" ? 1 : 0;
+
+        var apply = Theme.MakeButton("Применить", true);
+        apply.Location = new Point(16, 82);
+        apply.Click += (_, _) =>
+        {
+            LauncherSettings.ThemeName = box.SelectedIndex == 1 ? "dark" : "light";
+            _modalOverlay?.Dispose(); _modalOverlay = null;
+            ReapplyTheme();
+        };
+        host.Controls.AddRange(new Control[] { lbl, box, apply });
+        ShowModalControl("Настройки", host, 320, 170);
+    }
+
+    // Re-read the palette everywhere after a theme switch.
+    void ReapplyTheme()
+    {
+        BackColor = Theme.Bg;
+        _content.BackColor = Theme.Bg;
+        _sidebar.BackColor = Theme.SidebarBg;
+        _settingsBtn.BackColor = Theme.SidebarBg;
+        _settingsBtn.ForeColor = Theme.Link;
+        _titleBar.Invalidate();
+        _sidebar.Invalidate();
+        BuildSidebar();
+        HighlightSidebar();
+        if (_auth != null && _currentGameId != "") ShowGame(_currentGameId);
+        else if (_auth == null) ShowLogin();
+    }
+
     void ClearContent()
     {
         foreach (Control c in _content.Controls) c.Dispose();
@@ -145,22 +225,19 @@ public partial class MainForm
         var st = Stats.Get(g.Id);
         bool installed = Updater.IsInstalled();
 
-        // action row
+        // action row — folder/integrity moved into Свойства (right-click the game).
         y += 14;
         var mainBtn = Theme.MakeButton(installed ? "Играть" : "Установить игру", true, 11);
         mainBtn.Location = new Point(24, y);
-        var folderBtn = Theme.MakeButton("Папка игры", false);
-        var verifyBtn = Theme.MakeButton("Проверить целостность", false);
 
         var status = new Label { ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true, Text = installed ? "Готов к запуску" : "Игра не установлена" };
         var progress = new ProgressBar { Style = ProgressBarStyle.Continuous, Width = 360, Height = 14, Visible = false, Maximum = 1000 };
 
         mainBtn.Click += async (_, _) =>
         {
-            mainBtn.Enabled = false; folderBtn.Enabled = false; verifyBtn.Enabled = false;
+            mainBtn.Enabled = false;
             try
             {
-                bool wasInstalled = Updater.IsInstalled();
                 await Updater.EnsureUpToDateAsync((stage, frac) => BeginInvoke(() =>
                 {
                     var TXT = new Dictionary<string, string> { ["check"] = "Проверка…", ["download"] = "Загрузка…", ["install"] = "Установка…", ["ready"] = "Готово", ["uptodate"] = "Актуальная версия" };
@@ -177,31 +254,28 @@ public partial class MainForm
             catch (Exception ex)
             {
                 status.Text = "Ошибка: " + ex.Message;
-                mainBtn.Enabled = true; folderBtn.Enabled = true; verifyBtn.Enabled = true;
+                mainBtn.Enabled = true;
             }
         };
-        folderBtn.Click += (_, _) =>
-        {
-            if (Directory.Exists(Config.GameDir))
-                System.Diagnostics.Process.Start("explorer.exe", Config.GameDir);
-        };
-        verifyBtn.Click += (_, _) =>
-        {
-            var r = Stats.Verify(g.Id, Config.GameDir);
-            if (r.NoSnapshot) MessageBox.Show("Игра ещё не установлена — нечего проверять.", "PetusLauncher");
-            else if (r.Ok) MessageBox.Show("Проверка пройдена: файлы игры не изменены.", "PetusLauncher");
-            else MessageBox.Show("ВНИМАНИЕ: изменены файлы игры:\n" + string.Join("\n", r.Changed) + "\n\nПереустанови игру.", "PetusLauncher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        };
 
-        folderBtn.Location = new Point(mainBtn.Right + 10, y + 3);
-        verifyBtn.Location = new Point(folderBtn.Right + 10, y + 3);
-        _content.Controls.AddRange(new Control[] { mainBtn, folderBtn, verifyBtn });
+        var propBtn = Theme.MakeButton("Свойства", false);
+        propBtn.Location = new Point(mainBtn.Right + 10, y + 3);
+        propBtn.Click += (_, _) => ShowProperties(g);
+        _content.Controls.AddRange(new Control[] { mainBtn, propBtn });
         y += 44;
         status.Location = new Point(24, y); _content.Controls.Add(status); y += 22;
         progress.Location = new Point(24, y); _content.Controls.Add(progress); y += 8;
 
-        // stats card
+        // about card
         y += 8;
+        var aboutCard = MakeCard("Об игре", cw, y, out var abody);
+        var about = new Label { Text = g.Description, ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = false, Dock = DockStyle.Top, Height = 64, Padding = new Padding(12, 8, 12, 0) };
+        abody.Controls.Add(about);
+        aboutCard.Height = 26 + 64;
+        _content.Controls.Add(aboutCard);
+        y += aboutCard.Height + 14;
+
+        // stats card
         var statsCard = MakeCard("Статистика", cw, y, out var sbody);
         var grid = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, Height = 56, BackColor = Theme.Panel };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
@@ -224,11 +298,13 @@ public partial class MainForm
     void RenderMc(GameDef g, ref int y)
     {
         int cw = _content.ClientSize.Width - 48;
+        var st = Stats.Get(g.Id);
+        var acc = LauncherSettings.McAccount;
+
+        // action row: Играть + версия + аккаунт
         y += 14;
         var playBtn = Theme.MakeButton("Играть", true, 11);
         playBtn.Location = new Point(24, y);
-        playBtn.Click += (_, _) => ShowMcModal(g);
-        _content.Controls.Add(playBtn);
 
         var online = new Label
         {
@@ -238,23 +314,193 @@ public partial class MainForm
         };
         _content.Controls.Add(online);
         _ = LoadMcStatus(g.Ip!, online);
-        y += 48;
+        _content.Controls.Add(playBtn);
+        y += 44;
 
-        var info = MakeCard("О сервере", cw, y, out var body);
+        var status = new Label { ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(24, y) };
+        var progress = new ProgressBar { Style = ProgressBarStyle.Continuous, Width = 360, Height = 14, Visible = false, Maximum = 1000, Location = new Point(24, y + 20) };
+        _content.Controls.Add(status);
+        _content.Controls.Add(progress);
+        y += 46;
+
+        // settings card: версия клиента + аккаунт
+        var setCard = MakeCard("Запуск", cw, y, out var setBody);
+        var verLbl = new Label { Text = "Версия клиента:", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(12, 12) };
+        var verBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Location = new Point(120, 9), Font = new Font(Theme.FontName, 9) };
+        verBox.Items.Add("Загрузка версий…");
+        verBox.SelectedIndex = 0;
+        var verHint = new Label { Text = $"Сервер работает на {Config.McServerVersion} (рекомендуется)", ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 8), AutoSize = true, Location = new Point(280, 13) };
+
+        var accLbl = new Label { Text = "Аккаунт:", ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9), AutoSize = true, Location = new Point(12, 44) };
+        var accName = new Label { Text = acc != null ? $"{acc.Name} ({(acc.Type == "microsoft" ? "Microsoft" : "офлайн")})" : "не выбран", ForeColor = acc != null ? Theme.Title : Theme.Muted, Font = new Font(Theme.FontName, 9, FontStyle.Bold), AutoSize = true, Location = new Point(120, 44) };
+        var loginBtn = Theme.MakeButton(acc != null ? "Сменить аккаунт" : "Войти", false);
+        loginBtn.Location = new Point(280, 40);
+        loginBtn.Click += (_, _) => ShowMcLoginModal(g);
+
+        setBody.Controls.AddRange(new Control[] { verLbl, verBox, verHint, accLbl, accName, loginBtn });
+        setCard.Height = 26 + 78;
+        _content.Controls.Add(setCard);
+        y += setCard.Height + 14;
+
+        // populate versions async
+        _ = PopulateMcVersions(verBox);
+
+        playBtn.Click += async (_, _) =>
+        {
+            var account = LauncherSettings.McAccount;
+            if (account == null) { ShowMcLoginModal(g); return; }
+            if (verBox.SelectedItem is not string ver || ver.StartsWith("Загрузка")) { status.Text = "Выбери версию."; return; }
+            LauncherSettings.McVersion = ver;
+            playBtn.Enabled = false; loginBtn.Enabled = false;
+            long startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            try
+            {
+                // Silently refresh a Microsoft token if it's near expiry so the
+                // session stays valid without re-prompting the user.
+                if (account.Type == "microsoft" &&
+                    account.RefreshExpires - DateTimeOffset.UtcNow.ToUnixTimeSeconds() < 300)
+                {
+                    status.Text = "Обновление сессии Microsoft…";
+                    var refreshed = await MicrosoftAuth.RefreshAsync(account);
+                    if (refreshed != null) { account = refreshed; LauncherSettings.McAccount = refreshed; }
+                }
+                var TXT = new Dictionary<string, string> { ["manifest"] = "Получение манифеста…", ["libraries"] = "Загрузка библиотек…", ["assets"] = "Загрузка ресурсов…", ["java"] = "Загрузка Java…", ["launch"] = "Запуск…" };
+                var proc = await MinecraftLauncher.InstallAndLaunchAsync(ver, account, LauncherSettings.McRamMb,
+                    (stage, frac) => BeginInvoke(() =>
+                    {
+                        status.Text = TXT.GetValueOrDefault(stage, stage);
+                        progress.Visible = frac > 0 && frac < 1;
+                        progress.Value = Math.Min(1000, (int)(frac * 1000));
+                    }), g.Ip);
+                Stats.SetLastPlayed(g.Id, startedAt);
+                Stats.UpdateSize(g.Id, Config.McDir);
+                status.Text = "Minecraft запущен!";
+                progress.Visible = false;
+                proc.Exited += (_, _) =>
+                {
+                    double secs = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - startedAt) / 1000.0;
+                    Stats.AddPlaytime(g.Id, secs, startedAt);
+                    try { BeginInvoke(() => { if (_currentGameId == g.Id) ShowGame(g.Id); }); } catch { }
+                };
+                ShowGame(g.Id);
+            }
+            catch (Exception ex)
+            {
+                status.Text = "Ошибка: " + ex.Message;
+                progress.Visible = false;
+                playBtn.Enabled = true; loginBtn.Enabled = true;
+            }
+        };
+
+        // about card
+        var about = MakeCard("О сервере", cw, y, out var abody);
         var lbl = new Label
         {
-            Text = $"Заходи на Minecraft-сервер Петус.\nIP: {g.Ip}",
+            Text = g.Description + $"\n\nIP: {g.Ip}",
             ForeColor = Theme.Text, Font = new Font(Theme.FontName, 9),
-            AutoSize = false, Dock = DockStyle.Top, Height = 50, Padding = new Padding(12, 10, 0, 0),
+            AutoSize = false, Dock = DockStyle.Top, Height = 96, Padding = new Padding(12, 8, 12, 0),
         };
-        body.Controls.Add(lbl);
-        info.Height = 26 + 50;
-        _content.Controls.Add(info);
-        y += info.Height + 14;
+        abody.Controls.Add(lbl);
+        about.Height = 26 + 96;
+        _content.Controls.Add(about);
+        y += about.Height + 14;
+
+        // stats card (playtime + last launch)
+        var statsCard = MakeCard("Статистика", cw, y, out var sbody);
+        var grid = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Dock = DockStyle.Top, Height = 56, BackColor = Theme.Panel };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
+        grid.Controls.Add(StatCell("Наиграно", FmtDuration(st.PlaySeconds)), 0, 0);
+        grid.Controls.Add(StatCell("Размер", FmtSize(st.SizeBytes)), 1, 0);
+        grid.Controls.Add(StatCell("Последний запуск", FmtDate(st.LastPlayed)), 2, 0);
+        sbody.Controls.Add(grid);
+        statsCard.Height = 26 + 56;
+        _content.Controls.Add(statsCard);
+        y += statsCard.Height + 14;
 
         var upCard = MakeUpdatesCard(g, cw, y);
         _content.Controls.Add(upCard);
         y += upCard.Height + 20;
+    }
+
+    // Fetch release versions and select the recommended server version by default.
+    async Task PopulateMcVersions(ComboBox box)
+    {
+        try
+        {
+            var versions = await MinecraftLauncher.GetVersionsAsync();
+            if (!box.IsHandleCreated) return;
+            box.BeginInvoke(() =>
+            {
+                box.Items.Clear();
+                foreach (var v in versions) box.Items.Add(v);
+                var want = LauncherSettings.McVersion;
+                if (string.IsNullOrEmpty(want)) want = Config.McServerVersion;
+                int idx = box.Items.IndexOf(want);
+                if (idx < 0) idx = box.Items.IndexOf(Config.McServerVersion);
+                box.SelectedIndex = idx >= 0 ? idx : 0;
+            });
+        }
+        catch
+        {
+            if (box.IsHandleCreated)
+                box.BeginInvoke(() => { box.Items.Clear(); box.Items.Add(Config.McServerVersion); box.SelectedIndex = 0; });
+        }
+    }
+
+    // Login modal: Microsoft (device code) OR offline (just a nickname).
+    void ShowMcLoginModal(GameDef g)
+    {
+        var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, Padding = new Padding(16) };
+
+        var msBtn = Theme.MakeButton("Войти через Microsoft", true);
+        msBtn.Location = new Point(16, 14); msBtn.Width = 340;
+
+        var or = new Label { Text = "— или офлайн-аккаунт —", ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, Width = 340, Location = new Point(16, 58) };
+
+        var nickBox = new TextBox { Font = new Font(Theme.FontName, 11), Width = 220, Location = new Point(16, 86), Text = LauncherSettings.McAccount?.Name ?? "" };
+        var offBtn = Theme.MakeButton("Войти", false);
+        offBtn.Location = new Point(244, 84);
+
+        var info = new Label { Text = "", ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = false, Width = 340, Height = 60, Location = new Point(16, 122) };
+
+        offBtn.Click += (_, _) =>
+        {
+            var nick = nickBox.Text.Trim();
+            if (nick.Length < 3) { info.Text = "Ник должен быть не короче 3 символов."; info.ForeColor = Color.FromArgb(0xC0, 0x39, 0x2B); return; }
+            LauncherSettings.McAccount = MicrosoftAuth.OfflineAccount(nick);
+            _modalOverlay?.Dispose(); _modalOverlay = null;
+            ShowGame(g.Id);
+        };
+
+        msBtn.Click += async (_, _) =>
+        {
+            msBtn.Enabled = false; offBtn.Enabled = false;
+            info.ForeColor = Theme.Text;
+            try
+            {
+                var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                var acc = await MicrosoftAuth.LoginAsync((code, uri) => BeginInvoke(() =>
+                {
+                    info.Text = $"Открой {uri}\nи введи код: {code}";
+                    try { Clipboard.SetText(code); } catch { }
+                    Auth.OpenBrowser(uri);
+                }), cts.Token);
+                LauncherSettings.McAccount = acc;
+                _modalOverlay?.Dispose(); _modalOverlay = null;
+                ShowGame(g.Id);
+            }
+            catch (Exception ex)
+            {
+                info.Text = "Не удалось войти: " + ex.Message;
+                info.ForeColor = Color.FromArgb(0xC0, 0x39, 0x2B);
+                msBtn.Enabled = true; offBtn.Enabled = true;
+            }
+        };
+
+        host.Controls.AddRange(new Control[] { msBtn, or, nickBox, offBtn, info });
+        ShowModalControl("Вход в PetusMC", host, 388, 220);
     }
 
     // Query the public Minecraft status API and show online / players.
@@ -348,29 +594,6 @@ public partial class MainForm
         ShowModalControl(title, content, 380, 200);
     }
 
-    void ShowMcModal(GameDef g)
-    {
-        var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel, Padding = new Padding(16) };
-        var hint = new Label
-        {
-            Text = "Скопируй IP и вставь в Minecraft → Сетевая игра → Добавить сервер.",
-            ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9),
-            Dock = DockStyle.Top, Height = 40, AutoSize = false,
-        };
-        var row = new Panel { Dock = DockStyle.Top, Height = 34 };
-        var ipBox = new TextBox { Text = g.Ip, ReadOnly = true, Font = new Font(Theme.FontName, 11), Width = 220, Location = new Point(0, 4) };
-        var copyBtn = Theme.MakeButton("Копировать", true);
-        copyBtn.Location = new Point(228, 0);
-        copyBtn.Click += (_, _) =>
-        {
-            try { Clipboard.SetText(g.Ip ?? ""); } catch { }
-            copyBtn.Text = "Скопировано!";
-        };
-        row.Controls.Add(ipBox); row.Controls.Add(copyBtn);
-        host.Controls.Add(row); host.Controls.Add(hint);
-        ShowModalControl($"Подключение — {g.Name}", host, 400, 170);
-    }
-
     void ShowModalControl(string title, Control body, int w, int h)
     {
         _modalOverlay?.Dispose();
@@ -432,9 +655,17 @@ public partial class MainForm
         double mb = bytes / (1024.0 * 1024.0);
         return mb >= 1024 ? $"{mb / 1024:0.00} ГБ" : $"{mb:0} МБ";
     }
+    static readonly string[] MonthsAbbr =
+        { "янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек." };
+
+    // "28 дек. 2025 г." — or "30 июн." when it happened this calendar year.
     static string FmtDate(long ms)
     {
         if (ms <= 0) return "никогда";
-        return DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime.ToString("dd.MM.yyyy HH:mm");
+        var d = DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime;
+        var m = MonthsAbbr[d.Month - 1];
+        return d.Year == DateTime.Now.Year
+            ? $"{d.Day} {m}"
+            : $"{d.Day} {m} {d.Year} г.";
     }
 }

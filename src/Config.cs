@@ -22,6 +22,17 @@ static class Config
     public static string TokenFile => Path.Combine(LocalAppData, "PetusGDPS", "session.json");
     public static string ExeName => "GeometryDash.exe";
 
+    // --- PetusMC (Minecraft) ---
+    // Standard .minecraft layout so vanilla assets/versions/libraries are reused
+    // if the player already has Minecraft installed elsewhere is avoided; we keep
+    // our own isolated instance under PetusMC to not disturb their vanilla game.
+    public static string McDir => Path.Combine(LocalAppData, "PetusMC");
+    public static string McServerIp => Env("PETUS_MC_IP", "mc.petus.ru");
+    public static string McServerVersion => Env("PETUS_MC_SERVER_VERSION", "1.21.11");
+    // Microsoft OAuth (public client id for Minecraft; device-code flow).
+    public static string MsClientId => Env("PETUS_MS_CLIENT_ID", "00000000402b5328"); // MC vanilla launcher public client
+
+
     // Launcher's own data dir (auth, stats, integrity).
     public static string DataDir => Path.Combine(LocalAppData, "PetusLauncher");
     public static string AuthFile => Path.Combine(DataDir, "auth.json");

@@ -3,22 +3,29 @@ using System.Drawing.Drawing2D;
 namespace PetusLauncher;
 
 // VK-2010 palette + small UI helpers (flat buttons, gradient panels).
+// Two palettes: the classic light VK-2010 skin and a dark variant. The active
+// palette is chosen from LauncherSettings.ThemeName; all colours are exposed as
+// properties so the whole UI just re-reads them after a theme switch + rebuild.
 static class Theme
 {
-    public static readonly Color Bg = Color.FromArgb(0xE9, 0xED, 0xF3);
-    public static readonly Color BarTop = Color.FromArgb(0x5F, 0x7F, 0xA6);
-    public static readonly Color BarBot = Color.FromArgb(0x4A, 0x6A, 0x91);
-    public static readonly Color Panel = Color.White;
-    public static readonly Color PanelHead1 = Color.FromArgb(0xF7, 0xF9, 0xFB);
-    public static readonly Color PanelHead2 = Color.FromArgb(0xEE, 0xF1, 0xF5);
-    public static readonly Color Border = Color.FromArgb(0xC3, 0xCC, 0xD8);
-    public static readonly Color BorderLight = Color.FromArgb(0xE4, 0xE9, 0xEF);
-    public static readonly Color Title = Color.FromArgb(0x2B, 0x58, 0x7A);
-    public static readonly Color Link = Color.FromArgb(0x2B, 0x58, 0x7A);
-    public static readonly Color Muted = Color.FromArgb(0x77, 0x77, 0x77);
-    public static readonly Color Text = Color.FromArgb(0x33, 0x33, 0x33);
-    public static readonly Color SidebarBg = Color.FromArgb(0xF0, 0xF2, 0xF5);
-    public static readonly Color SidebarActive = Color.FromArgb(0xDB, 0xE4, 0xEF);
+    static bool Dark => LauncherSettings.ThemeName == "dark";
+
+    static Color Pick(Color light, Color dark) => Dark ? dark : light;
+
+    public static Color Bg          => Pick(Color.FromArgb(0xE9, 0xED, 0xF3), Color.FromArgb(0x1E, 0x22, 0x28));
+    public static Color BarTop      => Pick(Color.FromArgb(0x5F, 0x7F, 0xA6), Color.FromArgb(0x2C, 0x3A, 0x4C));
+    public static Color BarBot      => Pick(Color.FromArgb(0x4A, 0x6A, 0x91), Color.FromArgb(0x22, 0x2E, 0x3D));
+    public static Color Panel       => Pick(Color.White,                      Color.FromArgb(0x26, 0x2B, 0x33));
+    public static Color PanelHead1  => Pick(Color.FromArgb(0xF7, 0xF9, 0xFB), Color.FromArgb(0x2E, 0x34, 0x3D));
+    public static Color PanelHead2  => Pick(Color.FromArgb(0xEE, 0xF1, 0xF5), Color.FromArgb(0x28, 0x2D, 0x35));
+    public static Color Border      => Pick(Color.FromArgb(0xC3, 0xCC, 0xD8), Color.FromArgb(0x3A, 0x42, 0x4D));
+    public static Color BorderLight => Pick(Color.FromArgb(0xE4, 0xE9, 0xEF), Color.FromArgb(0x33, 0x3A, 0x44));
+    public static Color Title       => Pick(Color.FromArgb(0x2B, 0x58, 0x7A), Color.FromArgb(0x9C, 0xC4, 0xE6));
+    public static Color Link        => Pick(Color.FromArgb(0x2B, 0x58, 0x7A), Color.FromArgb(0xB8, 0xCF, 0xE6));
+    public static Color Muted       => Pick(Color.FromArgb(0x77, 0x77, 0x77), Color.FromArgb(0x8B, 0x93, 0x9E));
+    public static Color Text        => Pick(Color.FromArgb(0x33, 0x33, 0x33), Color.FromArgb(0xD5, 0xDA, 0xE0));
+    public static Color SidebarBg   => Pick(Color.FromArgb(0xF0, 0xF2, 0xF5), Color.FromArgb(0x22, 0x27, 0x2E));
+    public static Color SidebarActive => Pick(Color.FromArgb(0xDB, 0xE4, 0xEF), Color.FromArgb(0x33, 0x3C, 0x49));
 
     // Green primary button
     public static readonly Color Green1 = Color.FromArgb(0x7F, 0xAE, 0x5F);
