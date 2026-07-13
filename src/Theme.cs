@@ -29,6 +29,7 @@ static class Theme
     public static Color Text        => Pick(Color.FromArgb(0x33, 0x33, 0x33), Color.FromArgb(0xDD, 0xE2, 0xE9));
     public static Color SidebarBg   => Pick(Color.FromArgb(0xF0, 0xF2, 0xF5), Color.FromArgb(0x20, 0x25, 0x2D));
     public static Color SidebarActive => Pick(Color.FromArgb(0xDB, 0xE4, 0xEF), Color.FromArgb(0x31, 0x3A, 0x49));
+    public static Color SidebarHover  => Pick(Color.FromArgb(0xE4, 0xEA, 0xF1), Color.FromArgb(0x2E, 0x35, 0x40));
 
     // Thin border around the frameless window (light in both themes).
     public static Color AppBorder => Pick(Color.FromArgb(0xB4, 0xBF, 0xCE), Color.FromArgb(0x0E, 0x11, 0x16));
@@ -57,7 +58,9 @@ static class Theme
     }
 
     // A flat button styled like the site's .vk-btn / .vk-btn-primary.
-    public static Button MakeButton(string text, bool primary, int fontSize = 9)
+    // primaryColor overrides the fill (e.g. Blue2 for "Установить", Green2 for
+    // "Играть"); when null, primary→green, secondary→blue as before.
+    public static Button MakeButton(string text, bool primary, int fontSize = 9, Color? primaryColor = null)
     {
         var btn = new Button
         {
@@ -70,12 +73,14 @@ static class Theme
             Cursor = Cursors.Hand,
             UseVisualStyleBackColor = false,
         };
+        var fill = primaryColor ?? (primary ? Green2 : Blue2);
+        bool greenish = fill == Green2;
         btn.FlatAppearance.BorderSize = 1;
-        btn.FlatAppearance.BorderColor = primary
+        btn.FlatAppearance.BorderColor = greenish
             ? Color.FromArgb(0x4E, 0x7A, 0x34)
             : Color.FromArgb(0x59, 0x75, 0xA0);
-        btn.BackColor = primary ? Green2 : Blue2;
-        btn.FlatAppearance.MouseOverBackColor = primary
+        btn.BackColor = fill;
+        btn.FlatAppearance.MouseOverBackColor = greenish
             ? Color.FromArgb(0x6A, 0xA0, 0x49)
             : Color.FromArgb(0x56, 0x78, 0x9F);
         // Auto width from text.

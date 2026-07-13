@@ -136,9 +136,111 @@ public partial class MainForm
         _scrollOffset = 0;
     }
 
+    // Embedded-image cache (assets are EmbeddedResource in the csproj).
+    static readonly Dictionary<string, Image?> _assetCache = new();
+    static Image? LoadAsset(string name)
+    {
+        if (_assetCache.TryGetValue(name, out var cached)) return cached;
+        Image? img = null;
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            var res = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(name, StringComparison.OrdinalIgnoreCase));
+            if (res != null)
+            {
+                using var s = asm.GetManifestResourceStream(res);
+                if (s != null) img = Image.FromStream(s);
+            }
+        }
+        catch { }
+        _assetCache[name] = img;
+        return img;
+    }
+
+    // ---------------- downloads page ----------------
+    void ShowDownloads()
+    {
+        _currentGameId = "";
+        HighlightSidebar();
+        ClearContent();
+
+        int y = 16;
+        var title = new Label { Text = "Загрузки", Font = new Font(Theme.FontName, 15, FontStyle.Bold), ForeColor = Theme.Title, AutoSize = true, Location = new Point(24, y) };
+        _content.Controls.Add(title);
+        y += 40;
+
+        foreach (var g in Games.All)
+        {
+            var row = BuildDownloadRow(g, y);
+            _content.Controls.Add(row);
+            y += row.Height + 12;
+        }
+
+        // Live-refresh the downloads page while anything is active.
+        HookDownloadRefresh(() => { if (_currentGameId == "" && _downloadsOpen) ShowDownloads(); });
+        _downloadsOpen = true;
+    }
+    bool _downloadsOpen;
+
+    Panel BuildDownloadRow(GameDef g, int y)
+    {
+        int cw = _content.ClientSize.Width - 48;
+        var card = new Panel { Location = new Point(24, y), Width = cw, Height = 76, BackColor = Theme.Panel, BorderStyle = BorderStyle.FixedSingle, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+
+        // Icon.
+        var icon = g.Type == "mc" ? LoadAsset("petusmc-icon.png") : LoadAsset("icon.png");
+        var pic = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(52, 52), Location = new Point(12, 12), Image = icon, BackColor = Color.Transparent };
+        card.Controls.Add(pic);
+
+        var name = new Label { Text = g.Name, Font = new Font(Theme.FontName, 11, FontStyle.Bold), ForeColor = Theme.Title, AutoSize = true, Location = new Point(76, 12) };
+        var desc = new Label { Text = g.Tagline, Font = new Font(Theme.FontName, 8), ForeColor = Theme.Muted, AutoSize = true, Location = new Point(76, 34) };
+        card.Controls.Add(name); card.Controls.Add(desc);
+
+        var job = DownloadManager.Get(g.Id);
+        bool installed = GameOps.IsInstalled(g);
+        bool active = DownloadManager.IsActive(g.Id);
+
+        // Right side: progress + analytics OR an action button.
+        if (active && job != null)
+        {
+            var bar = new ProgressBar { Style = ProgressBarStyle.Continuous, Maximum = 1000, Value = Math.Min(1000, (int)(job.Fraction * 1000)), Width = 220, Height = 12, Location = new Point(cw - 250, 24) };
+            var meta = new Label
+            {
+                AutoSize = false, Width = 240, Height = 16, Location = new Point(cw - 250, 42),
+                ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 8),
+                Text = $"{job.Status}  ·  {FmtSpeed(job.SpeedBps)}  ·  {FmtSize(job.BytesDone)}/{FmtSize(job.BytesTotal)}  ·  ~{FmtEta(job.EtaSeconds)}",
+            };
+            card.Controls.Add(bar); card.Controls.Add(meta);
+        }
+        else
+        {
+            string label = !installed ? "Установить" : (g.Id == "petusgdps" && _gdpsUpdateAvailable ? "Обновить" : "Играть");
+            bool blue = !installed || label == "Обновить";
+            var btn = Theme.MakeButton(label, true, primaryColor: blue ? Theme.Blue2 : Theme.Green2);
+            btn.Location = new Point(cw - btn.Width - 16, 20);
+            btn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btn.Click += (_, _) => { ShowGame(g.Id); StartGame(g); };
+            card.Controls.Add(btn);
+        }
+        return card;
+    }
+
+    static string FmtSpeed(double bps) => bps <= 0 ? "—" : bps >= 1048576 ? $"{bps / 1048576:0.0} МБ/с" : $"{bps / 1024:0} КБ/с";
+    static string FmtEta(double s) => s <= 0 ? "—" : s >= 60 ? $"{(int)(s / 60)} мин" : $"{(int)s} сек";
+
+    // Subscribe a UI refresh to DownloadManager for the lifetime of the page.
+    void HookDownloadRefresh(Action refresh)
+    {
+        if (_dlHandler != null) DownloadManager.Changed -= _dlHandler;
+        _dlHandler = _ => { try { BeginInvoke(refresh); } catch { } };
+        DownloadManager.Changed += _dlHandler;
+    }
+    Action<DownloadManager.Job>? _dlHandler;
+
     // ---------------- login ----------------
     void ShowLogin()
     {
+        _downloadsOpen = false;
         ClearContent();
         var card = new Panel
         {
@@ -216,25 +318,42 @@ public partial class MainForm
     void ShowGame(string id)
     {
         _currentGameId = id;
+        _downloadsOpen = false;
         _content.Resize -= _centerHandler;
         HighlightSidebar();
         var g = Games.All.FirstOrDefault(x => x.Id == id);
         if (g == null) return;
         ClearContent();
 
+        // While this game is downloading, live-refresh the page from the manager.
+        if (DownloadManager.IsActive(id))
+            HookDownloadRefresh(() => { if (_currentGameId == id) ShowGame(id); });
+
         int y = 0;
         // Banner
         var banner = new Panel { Location = new Point(0, y), Height = 150, Width = _content.ClientSize.Width - 20, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+        var bannerImg = g.Type == "mc" ? LoadAsset("petusmc-banner.png") : null;
         var (bl, br) = g.Type == "gdps"
             ? (Color.FromArgb(0x3A, 0x2C, 0x74), Color.FromArgb(0x7B, 0x61, 0xFF))
             : (Color.FromArgb(0x24, 0x4A, 0x24), Color.FromArgb(0x5F, 0x91, 0x40));
         banner.Paint += (_, e) =>
         {
-            Theme.PaintHGradient(e.Graphics, banner.ClientRectangle, bl, br);
-            using var tf = new Font(Theme.FontName, 20, FontStyle.Bold);
-            using var sf = new Font(Theme.FontName, 10);
-            e.Graphics.DrawString(g.Name, tf, Brushes.White, 22, 92);
-            e.Graphics.DrawString(g.Tagline, sf, Brushes.White, 24, 124);
+            if (bannerImg != null)
+            {
+                // Cover-fit the artwork across the banner area.
+                var r = banner.ClientRectangle;
+                float scale = Math.Max((float)r.Width / bannerImg.Width, (float)r.Height / bannerImg.Height);
+                int dw = (int)(bannerImg.Width * scale), dh = (int)(bannerImg.Height * scale);
+                e.Graphics.DrawImage(bannerImg, new Rectangle((r.Width - dw) / 2, (r.Height - dh) / 2, dw, dh));
+            }
+            else
+            {
+                Theme.PaintHGradient(e.Graphics, banner.ClientRectangle, bl, br);
+                using var tf = new Font(Theme.FontName, 20, FontStyle.Bold);
+                using var sf = new Font(Theme.FontName, 10);
+                e.Graphics.DrawString(g.Name, tf, Brushes.White, 22, 92);
+                e.Graphics.DrawString(g.Tagline, sf, Brushes.White, 24, 124);
+            }
         };
         _content.Controls.Add(banner);
         y += 150;
@@ -272,14 +391,21 @@ public partial class MainForm
 
         // action row — Свойства lives in the right-click menu now.
         y += 16;
+        bool needsDownload = !installed || updateAvail;
         string mainLabel = !installed ? "Установить" : updateAvail ? "Обновить" : "Играть";
-        var mainBtn = Theme.MakeButton(mainLabel, true, 11);
+        // Install/Update = blue, Play = green.
+        var mainBtn = Theme.MakeButton(mainLabel, true, 11, primaryColor: needsDownload ? Theme.Blue2 : Theme.Green2);
         mainBtn.Location = new Point(24, y);
+
+        var job = DownloadManager.Get(g.Id);
+        bool downloading = DownloadManager.IsActive(g.Id);
 
         var status = new Label
         {
             ForeColor = Theme.Muted, Font = new Font(Theme.FontName, 9), AutoSize = true,
-            Text = !installed ? "Игра не установлена" : updateAvail ? "Доступно обновление" : "Готов к запуску",
+            Text = downloading ? (job?.Status ?? "Загрузка…")
+                 : !installed ? "Игра не установлена"
+                 : updateAvail ? "Доступно обновление" : "Готов к запуску",
         };
         var progress = ThinProgress();
 
@@ -288,40 +414,35 @@ public partial class MainForm
         group.Controls.Add(InlineStat("Наиграно", FmtDuration(st.PlaySeconds), out _));
         group.Controls.Add(InlineStat("Последний запуск", FmtDate(st.LastPlayed), out _));
         Label? sizeVal = null;
-        if (!installed || updateAvail)
+        if (needsDownload)
             group.Controls.Add(InlineStat(updateAvail ? "Размер обновления" : "Размер загрузки", "…", out sizeVal));
         _content.Controls.Add(group);
 
-        mainBtn.Click += async (_, _) =>
+        mainBtn.Click += (_, _) =>
         {
-            mainBtn.Enabled = false;
-            try
+            if (installed && !updateAvail && !downloading)
             {
-                await Updater.EnsureUpToDateAsync((stage, frac) => BeginInvoke(() =>
-                {
-                    var TXT = new Dictionary<string, string> { ["check"] = "Проверка…", ["download"] = "Загрузка…", ["install"] = "Установка…", ["ready"] = "Готово", ["uptodate"] = "Актуальная версия" };
-                    status.Text = TXT.GetValueOrDefault(stage, stage);
-                    if (stage == "download") { progress.Visible = true; progress.Value = Math.Min(1000, (int)(frac * 1000)); }
-                    else if (stage is "ready" or "uptodate") progress.Visible = false;
-                }));
-                _gdpsUpdateAvailable = false;
-                Stats.UpdateSize(g.Id, Config.GameDir);
-                Stats.Snapshot(g.Id, Config.GameDir);
-                GameLauncher.Launch(_auth!);
-                status.Text = "Игра запущена!";
-                ShowGame(g.Id); // refresh (button becomes Играть, size hidden)
+                // Ready → just launch.
+                try { Stats.Snapshot(g.Id, Config.GameDir); GameLauncher.Launch(_auth!); status.Text = "Игра запущена!"; }
+                catch (Exception ex) { status.Text = "Ошибка: " + ex.Message; }
+                return;
             }
-            catch (Exception ex)
-            {
-                status.Text = "Ошибка: " + ex.Message;
-                mainBtn.Enabled = true;
-            }
+            // Install/update via the central manager so it survives navigation.
+            DownloadManager.StartGdps();
+            ShowGame(g.Id); // re-render into the "downloading" state
         };
 
         _content.Controls.Add(mainBtn);
         y += 44;
-        status.Location = new Point(24, y); _content.Controls.Add(status); y += 20;
-        progress.Location = new Point(24, y); _content.Controls.Add(progress); y += 8;
+        status.Location = new Point(24, y); _content.Controls.Add(status); y += 22;
+        // Only occupy space for the progress bar while a download is running.
+        if (downloading)
+        {
+            progress.Location = new Point(24, y);
+            if (job != null) progress.Value = Math.Min(1000, (int)(job.Fraction * 1000));
+            _content.Controls.Add(progress);
+            y += 16;
+        }
 
         if (sizeVal != null) _ = FillRemoteSize(sizeVal);
 
@@ -338,9 +459,11 @@ public partial class MainForm
         var st = Stats.Get(g.Id);
         var acc = LauncherSettings.McAccount;
 
-        // action row: Играть + inline stats
+        // action row: Играть/Установить + inline stats
         y += 16;
-        var playBtn = Theme.MakeButton("Играть", true, 11);
+        bool mcInstalled = GameOps.McInstalled();
+        var playBtn = Theme.MakeButton(mcInstalled ? "Играть" : "Установить", true, 11,
+            primaryColor: mcInstalled ? Theme.Green2 : Theme.Blue2);
         playBtn.Location = new Point(24, y);
 
         var group = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Color.Transparent, Location = new Point(playBtn.Right + 22, y - 2) };

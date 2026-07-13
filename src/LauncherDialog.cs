@@ -1,5 +1,15 @@
 namespace PetusLauncher;
 
+// A double-buffered panel — avoids flicker/smear when the dialog is dragged.
+class BufferedPanel : Panel
+{
+    public BufferedPanel()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
+        DoubleBuffered = true;
+    }
+}
+
 // A custom, launcher-styled floating dialog rendered INSIDE the main window
 // (not a Windows dialog). Draggable by its title bar, with a VK-gradient header
 // and a close button. Used for Settings, Updates and Properties so everything
@@ -13,11 +23,11 @@ class LauncherDialog
 
     public LauncherDialog(string title, int w, int h)
     {
-        Root = new Panel { BackColor = Color.Transparent, Width = w + 12, Height = h + 12 };
+        Root = new BufferedPanel { BackColor = Theme.Bg, Width = w + 12, Height = h + 12 };
 
         _shadow = new Panel { Bounds = new Rectangle(4, 5, w, h), BackColor = Color.FromArgb(40, 0, 0, 0) };
 
-        var modal = new Panel { Bounds = new Rectangle(0, 0, w, h), BackColor = Theme.Panel, BorderStyle = BorderStyle.FixedSingle };
+        var modal = new BufferedPanel { Bounds = new Rectangle(0, 0, w, h), BackColor = Theme.Panel, BorderStyle = BorderStyle.FixedSingle };
 
         var head = new Panel { Dock = DockStyle.Top, Height = 32, Cursor = Cursors.SizeAll };
         head.Paint += (s, e) => Theme.PaintVGradient(e.Graphics, head.ClientRectangle, Theme.BarTop, Theme.BarBot);
@@ -65,7 +75,10 @@ class LauncherDialog
         c.MouseMove += (_, e) =>
         {
             if (!_dragging) return;
+            var old = Root.Bounds;
             Root.Location = new Point(Root.Left + e.X - _dragStart.X, Root.Top + e.Y - _dragStart.Y);
+            // Repaint the region the dialog just vacated so no ghost trail is left.
+            Root.Parent?.Invalidate(old, true);
         };
         c.MouseUp += (_, _) => _dragging = false;
     }

@@ -40,8 +40,24 @@ static class MicrosoftAuth
             ["client_id"] = Config.MsClientId,
             ["scope"] = Scope,
         }), ct);
-        var codeJson = await ReadJson(codeResp);
-        var root = codeJson.RootElement;
+        var codeBody = await codeResp.Content.ReadAsStringAsync(ct);
+        if (!codeResp.IsSuccessStatusCode)
+        {
+            // Surface Microsoft's real reason instead of a generic 400 so the
+            // error is actionable (usually: the client_id isn't authorized for
+            // the device-code flow / consumers endpoint).
+            string detail = codeBody;
+            try
+            {
+                var e = JsonDocument.Parse(codeBody).RootElement;
+                detail = (e.TryGetProperty("error_description", out var d) ? d.GetString() : null)
+                       ?? (e.TryGetProperty("error", out var er) ? er.GetString() : null)
+                       ?? codeBody;
+            }
+            catch { }
+            throw new Exception($"Microsoft отклонил запрос ({(int)codeResp.StatusCode}): {detail}");
+        }
+        var root = JsonDocument.Parse(codeBody).RootElement;
         var deviceCode = root.GetProperty("device_code").GetString()!;
         var userCode = root.GetProperty("user_code").GetString()!;
         var verifyUri = root.GetProperty("verification_uri").GetString()!;

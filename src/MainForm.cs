@@ -17,6 +17,7 @@ public partial class MainForm : Form, IMessageFilter
     Panel _sidebar = null!;
     FlowLayoutPanel _gameList = null!;
     Button _settingsBtn = null!;
+    Button _downloadsBtn = null!;
     Panel _content = null!;
 
     // --- state ---
@@ -221,9 +222,27 @@ public partial class MainForm : Form, IMessageFilter
             Cursor = Cursors.Hand,
         };
         _settingsBtn.FlatAppearance.BorderSize = 0;
-        _settingsBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xE4, 0xEA, 0xF1);
+        _settingsBtn.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
         _settingsBtn.Click += (_, _) => ShowSettings();
         _sidebar.Controls.Add(_settingsBtn);
+
+        // Downloads button, just above Settings.
+        _downloadsBtn = new Button
+        {
+            Text = "  ⭳  Загрузки",
+            TextAlign = ContentAlignment.MiddleLeft,
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = Theme.Link,
+            Font = new Font(Theme.FontName, 9),
+            Width = 190,
+            Height = 34,
+            BackColor = Theme.SidebarBg,
+            Cursor = Cursors.Hand,
+        };
+        _downloadsBtn.FlatAppearance.BorderSize = 0;
+        _downloadsBtn.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
+        _downloadsBtn.Click += (_, _) => ShowDownloads();
+        _sidebar.Controls.Add(_downloadsBtn);
 
         Controls.Add(_sidebar);
 
@@ -238,16 +257,20 @@ public partial class MainForm : Form, IMessageFilter
 
     void DoLayout()
     {
-        int w = ClientSize.Width, h = ClientSize.Height;
-        _titleBar.SetBounds(0, 0, w, 40);
+        // Inset everything by the 1px app border so the border stays visible.
+        const int b = 1;
+        int w = ClientSize.Width - b * 2, h = ClientSize.Height - b * 2;
+        _titleBar.SetBounds(b, b, w, 40);
         LayoutTitleBar();
         bool sideVisible = _sidebar.Visible;
         int sideW = sideVisible ? 190 : 0;
-        if (sideVisible) _sidebar.SetBounds(0, 40, sideW, h - 40);
-        _gameList.Height = h - 40 - 34 - 40;   // leave room for the settings button
+        if (sideVisible) _sidebar.SetBounds(b, b + 40, sideW, h - 40);
+        _gameList.Height = h - 40 - 34 - 40;   // leave room for downloads+settings
         if (_settingsBtn != null)
             _settingsBtn.Location = new Point(0, (h - 40) - 34);
-        _content.SetBounds(sideW, 40, w - sideW, h - 40);
+        if (_downloadsBtn != null)
+            _downloadsBtn.Location = new Point(0, (h - 40) - 34 - 34);
+        _content.SetBounds(b + sideW, b + 40, w - sideW, h - 40);
         CenterModal();
     }
 
@@ -259,7 +282,7 @@ public partial class MainForm : Form, IMessageFilter
         {
             var btn = new Button
             {
-                Text = "   " + g.Name,
+                Text = "      " + g.Name,
                 TextAlign = ContentAlignment.MiddleLeft,
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Theme.Link,
@@ -271,12 +294,18 @@ public partial class MainForm : Form, IMessageFilter
                 Tag = g.Id,
             };
             btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(0xE4, 0xEA, 0xF1);
+            btn.FlatAppearance.MouseOverBackColor = Theme.SidebarHover;
             var dotColor = g.Type == "gdps" ? Color.FromArgb(0x7B, 0x61, 0xFF) : Color.FromArgb(0x5F, 0x91, 0x40);
+            var iconImg = g.Type == "mc" ? LoadAsset("petusmc-icon.png") : LoadAsset("icon.png");
             btn.Paint += (s, e) =>
             {
-                using var br = new SolidBrush(dotColor);
-                e.Graphics.FillEllipse(br, 10, btn.Height / 2 - 4, 8, 8);
+                if (iconImg != null)
+                    e.Graphics.DrawImage(iconImg, new Rectangle(8, btn.Height / 2 - 11, 22, 22));
+                else
+                {
+                    using var br = new SolidBrush(dotColor);
+                    e.Graphics.FillEllipse(br, 10, btn.Height / 2 - 4, 8, 8);
+                }
             };
             btn.Click += (_, _) => ShowGame(g.Id);
             btn.ContextMenuStrip = BuildGameContextMenu(g);

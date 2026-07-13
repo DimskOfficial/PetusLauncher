@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="assets\icon.png" />
+    <EmbeddedResource Include="assets\petusmc-banner.png" />
+    <EmbeddedResource Include="assets\petusmc-icon.png" />
   </ItemGroup>
 
 </Project>

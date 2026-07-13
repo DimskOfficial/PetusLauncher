@@ -12,9 +12,26 @@ static class GameOps
     public static string InstallDir(GameDef g) => g.Type == "mc" ? Config.McDir : Config.GameDir;
 
     public static bool IsInstalled(GameDef g) =>
-        g.Type == "mc"
-            ? Directory.Exists(Config.McDir) && Directory.EnumerateFileSystemEntries(Config.McDir).Any()
-            : Updater.IsInstalled();
+        g.Type == "mc" ? McInstalled() : Updater.IsInstalled();
+
+    // MC counts as installed only if a real client version jar exists (not just
+    // leftover runtime/assets dirs from a Java download). Fixes the bug where
+    // it still reported "installed" after "Удалить с устройства".
+    public static bool McInstalled()
+    {
+        var versions = Path.Combine(Config.McDir, "versions");
+        if (!Directory.Exists(versions)) return false;
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(versions))
+            {
+                var id = Path.GetFileName(dir);
+                if (File.Exists(Path.Combine(dir, id + ".jar"))) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
 
     public static void OpenFolder(GameDef g)
     {
