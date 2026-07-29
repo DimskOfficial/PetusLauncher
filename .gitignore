@@ -1,7 +1,19 @@
-bin/
-obj/
-publish/
-publish_out/
-dist/
-node_modules/
-*.user
+# Gradle / Java
+.gradle/
+build/
+out/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Launcher runtime data (never commit tokens!)
+run/
+session.json
+launcher-data/
+
+# OS
+.DS_Store
+Thumbs.db
