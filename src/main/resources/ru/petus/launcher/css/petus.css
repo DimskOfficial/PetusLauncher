@@ -1,0 +1,389 @@
+/* -------------------------------------------------------------------------
+   PetusLauncher — visual language shared with id.petus.ru
+   Zinc surfaces, one violet accent, 10px radii, no gradients on controls.
+   ------------------------------------------------------------------------- */
+
+.root {
+    -petus-bg: #09090b;
+    -petus-surface: #131316;
+    -petus-surface-2: #18181b;
+    -petus-surface-3: #202024;
+    -petus-border: rgba(255, 255, 255, 0.08);
+    -petus-border-strong: rgba(255, 255, 255, 0.14);
+    -petus-text: #f4f4f5;
+    -petus-muted: #a1a1aa;
+    -petus-faint: #71717a;
+    -petus-accent: #7c5cff;
+    -petus-accent-soft: rgba(124, 92, 255, 0.16);
+    -petus-danger: #e5484d;
+    -petus-success: #3dd68c;
+    -petus-warning: #f5a524;
+
+    -fx-font-family: "Segoe UI", "Inter", "SF Pro Text", system-ui, sans-serif;
+    -fx-font-size: 13px;
+    -fx-background-color: -petus-bg;
+}
+
+.text, .label {
+    -fx-text-fill: -petus-text;
+}
+
+/* --- window chrome ---------------------------------------------------- */
+.window-root {
+    -fx-background-color: -petus-bg;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: -petus-border;
+    -fx-border-width: 1;
+}
+
+.title-bar {
+    -fx-background-color: transparent;
+    -fx-padding: 10 12 10 18;
+}
+
+.title-bar .title {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -petus-faint;
+    -fx-font-weight: 600;
+}
+
+.window-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-min-width: 32;
+    -fx-min-height: 28;
+    -fx-text-fill: -petus-muted;
+    -fx-cursor: hand;
+    -fx-padding: 0;
+}
+
+.window-button:hover {
+    -fx-background-color: -petus-surface-3;
+    -fx-text-fill: -petus-text;
+}
+
+.window-button.close:hover {
+    -fx-background-color: -petus-danger;
+    -fx-text-fill: white;
+}
+
+/* --- typography ------------------------------------------------------- */
+.h1 { -fx-font-size: 26px; -fx-font-weight: 700; }
+.h2 { -fx-font-size: 19px; -fx-font-weight: 700; }
+.h3 { -fx-font-size: 15px; -fx-font-weight: 600; }
+.muted { -fx-text-fill: -petus-muted; }
+.faint { -fx-text-fill: -petus-faint; -fx-font-size: 12px; }
+.mono { -fx-font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace; -fx-font-size: 12px; }
+
+/* --- cards ------------------------------------------------------------ */
+.card {
+    -fx-background-color: -petus-surface;
+    -fx-background-radius: 12;
+    -fx-border-color: -petus-border;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 18;
+}
+
+.card-flat {
+    -fx-background-color: -petus-surface-2;
+    -fx-background-radius: 10;
+    -fx-padding: 14;
+}
+
+.hero {
+    -fx-background-radius: 14;
+    -fx-padding: 26 28 26 28;
+    -fx-border-radius: 14;
+    -fx-border-width: 1;
+    -fx-border-color: -petus-border;
+}
+
+/* --- sidebar ---------------------------------------------------------- */
+.sidebar {
+    -fx-background-color: #0c0c0e;
+    -fx-border-color: transparent -petus-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 14 12 14 12;
+}
+
+.brand-mark {
+    -fx-background-color: -petus-accent;
+    -fx-background-radius: 10;
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+    -fx-max-width: 34;
+    -fx-max-height: 34;
+    -fx-alignment: center;
+}
+
+.nav-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 10;
+    -fx-padding: 10 12 10 12;
+    -fx-cursor: hand;
+}
+
+.nav-item:hover {
+    -fx-background-color: -petus-surface-2;
+}
+
+.nav-item.active {
+    -fx-background-color: -petus-surface-3;
+}
+
+.nav-item .nav-title {
+    -fx-font-size: 13.5px;
+    -fx-font-weight: 600;
+}
+
+.nav-item .nav-subtitle {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -petus-faint;
+}
+
+.nav-item.disabled .nav-title,
+.nav-item.disabled .nav-subtitle {
+    -fx-text-fill: -petus-faint;
+}
+
+.nav-dot {
+    -fx-min-width: 8;
+    -fx-min-height: 8;
+    -fx-max-width: 8;
+    -fx-max-height: 8;
+    -fx-background-radius: 4;
+}
+
+.server-icon {
+    -fx-background-radius: 9;
+    -fx-min-width: 36;
+    -fx-min-height: 36;
+    -fx-max-width: 36;
+    -fx-max-height: 36;
+    -fx-alignment: center;
+    -fx-font-weight: 700;
+    -fx-font-size: 14px;
+}
+
+/* --- buttons ---------------------------------------------------------- */
+.button {
+    -fx-background-radius: 9;
+    -fx-padding: 9 16 9 16;
+    -fx-cursor: hand;
+    -fx-font-weight: 600;
+}
+
+.button.primary {
+    -fx-background-color: -petus-accent;
+    -fx-text-fill: white;
+}
+
+.button.primary:hover {
+    -fx-background-color: #6b4bf5;
+}
+
+.button.primary:disabled {
+    -fx-opacity: 0.45;
+}
+
+.button.play {
+    -fx-background-color: -petus-success;
+    -fx-text-fill: #06281a;
+    -fx-font-size: 14px;
+    -fx-padding: 12 26 12 26;
+}
+
+.button.play:hover {
+    -fx-background-color: #34c47d;
+}
+
+.button.ghost {
+    -fx-background-color: -petus-surface-2;
+    -fx-text-fill: -petus-text;
+    -fx-border-color: -petus-border;
+    -fx-border-radius: 9;
+}
+
+.button.ghost:hover {
+    -fx-background-color: -petus-surface-3;
+}
+
+.button.link {
+    -fx-background-color: transparent;
+    -fx-text-fill: -petus-muted;
+    -fx-padding: 6 8 6 8;
+}
+
+.button.link:hover {
+    -fx-text-fill: -petus-text;
+}
+
+.button.danger {
+    -fx-background-color: rgba(229, 72, 77, 0.14);
+    -fx-text-fill: #ff8b8f;
+}
+
+.button.danger:hover {
+    -fx-background-color: rgba(229, 72, 77, 0.24);
+}
+
+/* --- badges / chips --------------------------------------------------- */
+.badge {
+    -fx-background-radius: 999;
+    -fx-padding: 4 10 4 10;
+    -fx-font-size: 11.5px;
+    -fx-font-weight: 600;
+    -fx-background-color: -petus-surface-3;
+    -fx-text-fill: -petus-muted;
+}
+
+.badge.accent { -fx-background-color: -petus-accent-soft; -fx-text-fill: #b9a6ff; }
+.badge.success { -fx-background-color: rgba(61, 214, 140, 0.16); -fx-text-fill: #7ee2b0; }
+.badge.warning { -fx-background-color: rgba(245, 165, 36, 0.16); -fx-text-fill: #f7c46c; }
+.badge.danger { -fx-background-color: rgba(229, 72, 77, 0.16); -fx-text-fill: #ff9a9d; }
+
+.feature-chip {
+    -fx-background-color: -petus-surface-2;
+    -fx-background-radius: 8;
+    -fx-padding: 7 11 7 11;
+    -fx-font-size: 12px;
+    -fx-text-fill: -petus-muted;
+}
+
+/* --- inputs ----------------------------------------------------------- */
+.text-field, .combo-box, .spinner, .password-field {
+    -fx-background-color: -petus-surface-2;
+    -fx-background-radius: 9;
+    -fx-border-color: -petus-border;
+    -fx-border-radius: 9;
+    -fx-text-fill: -petus-text;
+    -fx-prompt-text-fill: -petus-faint;
+    -fx-padding: 8 12 8 12;
+}
+
+.text-field:focused, .combo-box:focused, .password-field:focused {
+    -fx-border-color: -petus-accent;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: -petus-text;
+    -fx-background-color: transparent;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -petus-surface-2;
+    -fx-border-color: -petus-border;
+    -fx-background-radius: 10;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: -petus-surface-3;
+}
+
+.slider .track {
+    -fx-background-color: -petus-surface-3;
+    -fx-background-radius: 4;
+}
+
+.slider .thumb {
+    -fx-background-color: -petus-accent;
+}
+
+.check-box .box, .toggle-switch .thumb-area {
+    -fx-background-color: -petus-surface-3;
+    -fx-border-color: -petus-border;
+}
+
+.check-box:selected .box {
+    -fx-background-color: -petus-accent;
+    -fx-border-color: -petus-accent;
+}
+
+/* --- progress --------------------------------------------------------- */
+.progress-bar {
+    -fx-min-height: 8;
+    -fx-pref-height: 8;
+    -fx-max-height: 8;
+}
+
+.progress-bar > .track {
+    -fx-background-color: -petus-surface-3;
+    -fx-background-radius: 999;
+}
+
+.progress-bar > .bar {
+    -fx-background-color: -petus-accent;
+    -fx-background-radius: 999;
+    -fx-padding: 0;
+}
+
+/* --- scroll / list ---------------------------------------------------- */
+.scroll-pane, .scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: -petus-surface-3;
+    -fx-background-radius: 999;
+}
+
+.scroll-bar .thumb:hover {
+    -fx-background-color: #2c2c33;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
+}
+
+/* --- log console ------------------------------------------------------ */
+.console {
+    -fx-background-color: #0b0b0d;
+    -fx-background-radius: 10;
+    -fx-border-color: -petus-border;
+    -fx-border-radius: 10;
+    -fx-text-fill: #d4d4d8;
+    -fx-font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    -fx-font-size: 11.5px;
+}
+
+.console .content {
+    -fx-background-color: #0b0b0d;
+}
+
+/* --- toasts ----------------------------------------------------------- */
+.toast {
+    -fx-background-color: -petus-surface-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -petus-border-strong;
+    -fx-border-radius: 10;
+    -fx-padding: 12 16 12 16;
+}
+
+.toast.error { -fx-border-color: rgba(229, 72, 77, 0.5); }
+.toast.success { -fx-border-color: rgba(61, 214, 140, 0.45); }
+
+/* --- separators ------------------------------------------------------- */
+.separator .line {
+    -fx-border-color: -petus-border transparent transparent transparent;
+}
+
+.tooltip {
+    -fx-background-color: -petus-surface-3;
+    -fx-text-fill: -petus-text;
+    -fx-background-radius: 8;
+    -fx-font-size: 12px;
+}
