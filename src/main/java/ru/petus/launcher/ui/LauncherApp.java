@@ -29,7 +29,9 @@ public final class LauncherApp extends Application {
 
         LoginWindow login = new LoginWindow();
         login.show(session -> {
-            AccountManager.get().syncPetusAccount(session.minecraftName, session.minecraftUuid);
+            if (session != null) {
+                AccountManager.get().syncPetusAccount(session.minecraftName, session.minecraftUuid);
+            }
             new MainWindow().show();
         });
     }
