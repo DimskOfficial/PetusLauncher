@@ -1,0 +1,20 @@
+name: PetusAuth
+version: '${version}'
+main: ru.petus.auth.paper.PetusAuthPaper
+api-version: '1.21'
+folia-supported: true
+authors: [Petus]
+description: Вход на серверы Petus только через PetusLauncher и PetusID.
+website: https://petus.ru
+commands:
+  petusauth:
+    description: Статус и перезагрузка petus-auth
+    usage: /petusauth status|reload|whois <name>
+    aliases: [petus]
+permissions:
+  petus.auth.bypass:
+    description: Позволяет заходить без лаунчера
+    default: false
+  petus.auth.reload:
+    description: Перезагрузка конфигурации
+    default: op
