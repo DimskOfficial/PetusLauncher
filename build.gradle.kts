@@ -46,24 +46,43 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// Fat jar with the JavaFX artifacts for every desktop platform, so a single
+// --------------------------------------------------------------------------
+// Fat jar with the JavaFX artifacts of every desktop platform, so a single
 // PetusLauncher.jar runs on Windows, Linux and macOS with a plain JRE 21.
-val platforms = listOf("win", "linux", "mac", "mac-aarch64", "linux-aarch64")
+//
+// The classified JavaFX modules all declare the same Gradle capability, so they
+// cannot live in one configuration. One configuration per platform keeps Gradle
+// happy; shadow then merges them and drops the duplicated class files, while
+// the platform specific natives (.dll/.so/.dylib) all survive because their
+// file names differ.
+// --------------------------------------------------------------------------
+val javafxVersion = "21.0.5"
+// linux-aarch64 is not published for every JavaFX release, so it is left out:
+// Raspberry-class hardware can run the launcher with its own JavaFX runtime.
+val javafxPlatforms = listOf("win", "linux", "mac", "mac-aarch64")
 val javafxModules = listOf("base", "graphics", "controls", "media", "web", "swing")
-val allPlatformJavafx: Configuration by configurations.creating
 
-dependencies {
-    platforms.forEach { platform ->
-        javafxModules.forEach { module ->
-            allPlatformJavafx("org.openjfx:javafx-$module:21.0.5:$platform")
-        }
+val javafxBundles: List<Configuration> = javafxPlatforms.map { platform ->
+    val name = "javafxBundle" + platform.split("-").joinToString("") { part ->
+        part.replaceFirstChar { it.uppercaseChar() }
     }
+    val configuration = configurations.create(name) {
+        isTransitive = false
+        isCanBeConsumed = false
+        isCanBeResolved = true
+    }
+    javafxModules.forEach { module ->
+        dependencies.add(name, "org.openjfx:javafx-$module:$javafxVersion:$platform")
+    }
+    configuration
 }
 
 tasks.shadowJar {
     archiveFileName = "PetusLauncher-$version.jar"
     mergeServiceFiles()
-    configurations = listOf(project.configurations.runtimeClasspath.get(), allPlatformJavafx)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    configurations = listOf(project.configurations.runtimeClasspath.get()) + javafxBundles
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "module-info.class")
     manifest {
         attributes(
             "Implementation-Title" to "PetusLauncher",
