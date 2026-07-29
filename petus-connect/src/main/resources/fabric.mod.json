@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "petus-connect",
+  "version": "${version}",
+  "name": "Petus Connect",
+  "description": "Клиентский мод PetusLauncher: передаёт серверу одноразовый тикет PetusID, чтобы входить без пароля и только через лаунчер.",
+  "authors": ["Petus"],
+  "contact": {
+    "homepage": "https://petus.ru",
+    "sources": "https://github.com/DimskOfficial/PetusLauncher"
+  },
+  "license": "MIT",
+  "icon": "assets/petus-connect/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["ru.petus.connect.PetusConnect"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": ">=1.21",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
